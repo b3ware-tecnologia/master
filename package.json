@@ -16,6 +16,7 @@
     "test": "prisma generate && vitest run",
     "harness": "tsx scripts/harness.ts local",
     "harness:staging": "tsx scripts/harness.ts staging",
+    "harness:phase2": "tsx scripts/phase-2-acceptance.ts",
     "seed": "tsx prisma/seed.ts",
     "prisma": "prisma"
   },
