@@ -30,7 +30,11 @@ Active platform administrators read a explicitly selected company's inbox at `/p
 - Isolated PostgreSQL acceptance passed on schema `phase5inbox_acceptance_b006524f98834a7d886c81b410cd8b8c`; schema cleanup verified.
 - Concurrent re-delivery persisted one message and one audit/outbox event. Exact customer matching excluded foreign-tenant customers. A foreign-tenant customer assignment failed the database foreign key.
 - Suspended membership, foreign tenant, consultant, disabled binding and suspended tenant were rejected. Older messages/callbacks preserved newer state. Message text and credentials were absent from audit/outbox records.
-- Deployed HTTP acceptance and provider callback configuration are tracked after release below. A real incoming message remains a separate acceptance gate.
+- WEB deployment `473487f8-444a-43e2-b56a-3b15557a4c64` (revision `8a4ee57`) reached SUCCESS, and applied the additive tenth CRM migration. Public readiness reports PostgreSQL and Redis ok.
+- Authenticated live HTTP acceptance passed concurrent synthetic delivery, wrong/missing token 401, instance mismatch 403, malformed body 400, content type 415, body limit 413, ignored event 202, tenant/master/platform reads, consultant/manager denial, foreign-tenant detail 404, spoofed tenant header 403, disabled binding/user/tenant checks, no-store headers and absence of text/secrets in audit/outbox. Fixture cleanup verified.
+- The real BM Crédito receiver was configured and read back successfully at 20:19:56 UTC. The user sent the requested test from another WhatsApp. The actual provider callback persisted one INBOUND/TEXT message at 20:20:55 UTC; case-insensitive text match for the agreed test and one audit record were verified without printing contact details.
+- The user-authenticated browser inbox showed the real conversation and its test text. The private visual evidence is not published to Git. No WhatsApp message was sent by this release or its acceptance runners.
+- Matching WORKER deployment `110560e1-b855-4446-bf27-c7e52b7cb242` reached SUCCESS. Its structured startup events confirm PostgreSQL connected, Redis connected and worker started; it does not own migrations.
 
 ## Remaining boundaries
 
