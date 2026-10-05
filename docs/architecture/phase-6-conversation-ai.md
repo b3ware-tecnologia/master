@@ -26,9 +26,13 @@ The additive eleventh CRM migration creates only the AI queue, usage and review 
 
 Local lint, typecheck and production build passed. 61 tests passed; two local connectivity tests remain skipped. Gateway tests cover unavailable credentials, strict request configuration, evidence/schema validation, refusal/incomplete output, safe errors and production prohibition of injected transports.
 
-`pnpm harness:phase6:staging` applies all eleven migrations in a unique isolated schema, checks concurrent request/claim/save behavior, tenant foreign keys, permission revocation, stale source blocking, hourly cap and safe audit/outbox, then verifies schema cleanup. Provider responses are simulated and fixture jobs are invisible to the live worker. The final extended acceptance passed in schema `phase6_acceptance_c9f840106c6146dbb681e061c9e83cea`.
+`pnpm harness:phase6:staging` applies all eleven migrations in a unique isolated schema, checks concurrent request/claim/save behavior, tenant foreign keys, permission revocation, stale source blocking, hourly cap and safe audit/outbox, then verifies schema cleanup. Provider responses are simulated and fixture jobs are invisible to the live worker. Final revision `519154d` passed in schema `phase6_acceptance_c6f14df0f7d64df1b7505c99091e5aeb`.
 
 `LIVE_HTTP_ACCEPTANCE=true pnpm harness:phase6:http` checks the intentionally disabled provider through deployed authenticated APIs with disposable users/conversations, then removes only its generated fixture IDs. It must be run inside the exact staging project and refuses when a real OpenAI key is present. Live provider quality, prompt-injection evaluations with a real model and real API usage are pending activation.
+
+WEB-STAGING deployment `fad3e40d-2a90-43e0-adae-1a77982b9f3a` reached SUCCESS and applied the eleventh migration. Public readiness returned PostgreSQL/Redis ok. The deployed authenticated HTTP runner passed missing-key 503, role and cross-tenant checks, scoped platform access, invalid review input and revoked-user denial, with zero created executions and verified fixture cleanup. The gateway/service source hashes matched the local revision after newline normalization. The human-authenticated BM Crédito inbox displayed the real test message and the disabled analysis panel; its private screenshot is excluded from Git.
+
+Matching WORKER-STAGING deployment `460bf57a-c6ee-4c4e-a9e2-2deb1683c27a` reached SUCCESS. Structured runtime events confirmed PostgreSQL connected, Redis connected and worker started. Gateway/service source hashes matched the local revision. Both services use `OPENAI_MODEL=gpt-6-luna` and have no OpenAI key; activation remains deferred. The original repository's stable branch was not merged; these staging changes are reviewable in cumulative draft PR #14.
 
 ## Remaining architecture
 
