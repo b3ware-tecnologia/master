@@ -56,6 +56,8 @@ async function main() {
     const assignmentPath = `${base}/customers/${customer.id}/assignment${query}`;
     let assigned = await request(assignmentPath, master.cookie, "PUT", { teamId: team.id, assignedMembershipId: consultant.membershipId, expectedVersion: null }); assert.equal(assigned.status, 200); let assignment = await assigned.json();
     const detail = await request(casePath, consultant.cookie); assert.equal(detail.status, 200); assert(detail.headers.get("cache-control")?.includes("no-store")); assert.equal((await detail.json()).conversation.messages[0].text, "Synthetic private HTTP message");
+    const consultantScreen = await request("/app/crm", consultant.cookie); assert.equal(consultantScreen.status, 200); const consultantHtml = await consultantScreen.text(); assert(consultantHtml.includes("Meus atendimentos")); assert(!consultantHtml.includes("Configurar equipe e acesso dos usuários"));
+    const customerScreen = await request("/app/customers", consultant.cookie); assert.equal(customerScreen.status, 200); const customerHtml = await customerScreen.text(); assert(customerHtml.includes("Synthetic HTTP customer")); assert(!customerHtml.includes("Importar lista"));
     assert.equal((await request(casePath, other.cookie)).status, 404);
     assert.equal((await request(`${base}/directory${query}`, consultant.cookie)).status, 403);
     const directory = await request(`${base}/directory${query}`, manager.cookie); assert.equal(directory.status, 200); assert.equal((await directory.json())[0].id, team.id);
