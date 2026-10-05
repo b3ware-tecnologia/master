@@ -27,14 +27,26 @@ Routes live at `/api/crm/*`, with explicit-administrator counterparts at `/api/p
 ## Acceptance
 
 - Local: 66 tests passed, two infrastructure connectivity tests skipped; lint/typecheck and production build passed.
-- Twelve migrations and the service acceptance passed in isolated staging PostgreSQL schema `phase79_acceptance_91f7036c697d4457924ac06a3b6d688b`; its removal was verified.
+- Twelve migrations and the final service acceptance passed in isolated staging PostgreSQL schema `phase79_acceptance_a93081ec045f4306bae745c9ee8c2651`; its removal was verified. The earlier setup acceptance also passed in schema `phase79_acceptance_91f7036c697d4457924ac06a3b6d688b` and was cleaned.
 - Exercised concurrent deduplication, changed-payload rejection, observed-contact timestamps, tenant/team foreign keys, manager and consultant scope, reassignment, suspension/removal/archival, future returns, guarded stages, terminal outcomes and content-free audit/outbox.
 - Setup creation/invitation, invited-member assignment rejection and concurrent team-member addition passed.
 
-Deployment, authenticated HTTP and browser evidence will be recorded below after the release completes. Isolated database acceptance alone is not deployed end-to-end proof.
+## Deployed staging evidence — 2026-10-05
+
+WEB deployment `90aa581d-8d4c-477c-ac89-47aaaa38c4a0`, source revision `694a9d2`, reached `SUCCESS`. All twelve public migrations were present; `/health` and `/ready` returned 200. Normalized SHA-256 hashes for nine CRM, scope, activation, customer UI and schema source files matched the local committed implementation. OpenAI credentials remain absent.
+
+Authenticated deployed HTTP acceptance passed with newly created synthetic master, manager, consultants, foreign-tenant master and platform administrator sessions. It verified customer/conversation/case creation and linkage, assignments, notes/stages/returns/closure, duplicate request handling, conflicts, role and cross-tenant denial, reassignment revocation, private responses, server-rendered consultant navigation/customer scope, setup and invite activation. Reusing activation tokens, resetting an active foreign account through CRM/legacy invites or old activation tokens, and activating a suspended membership were rejected. The active account's password hash stayed unchanged. All temporary fixture data, sessions, users and tenants were deleted by the guarded cleanup. No provider call or message send occurred.
+
+The existing human platform session opened the separate demonstration company and its four fictional cases. Browser acceptance assigned its queue customer to a consultant, returned it to the team queue, saved a clearly fictional note and verified that note after reloading the final release. The screenshot is local evidence at `.private/phase79-crm-demo.jpg`, excluded from Git. This is platform-browser proof and authenticated consultant HTTP/server-rendering proof; a human consultant login and real customer case remain separate operational acceptance.
+
+WORKER deployment `2a576d0f-ff4f-48d2-a74c-ad01706f5c1e`, also revision `694a9d2`, reached `SUCCESS`. Its startup emitted `postgres_connected`, `redis_connected` and `worker_started`; nine normalized source hashes matched the committed implementation, and all twelve public migrations were visible. The worker performed no migration. No OpenAI key is configured on either service.
+
+The cumulative draft remains [PR #14](https://github.com/bmcredito/master/pull/14), on fork head `phase/05-evolution-connector`, with upstream dependencies #11, #12 and #13. The upstream stable branch and production environment are separate from this manually released staging continuation. OpenAI activation, governed outbound delivery and media support remain deferred/separate work.
 
 ## Demonstration
 
 `CREATE_CRM_DEMO=true pnpm bootstrap:crm-demo:staging` is guarded to the BM Crédito Railway staging project. It creates the clearly labeled company **Demonstração CRM — dados fictícios**, one test team, an administrator, a manager, two consultants and four fictional customer cases. It creates no messaging connection or permanent password. The real BM Crédito company and its WhatsApp history are not modified by this bootstrap.
+
+The deployed demo tenant is `cmuvr9q670000p93yezf0kxg8`, accessible to the existing platform administrator at `/platform/crm?tenantId=cmuvr9q670000p93yezf0kxg8`.
 
 `LIVE_HTTP_ACCEPTANCE=true pnpm harness:phase79:http` uses uniquely named fixtures, authenticates synthetic users through the deployed login route, exercises the HTTP flow and removes its fixture tenants, users, credentials and records. Never run it against production.
