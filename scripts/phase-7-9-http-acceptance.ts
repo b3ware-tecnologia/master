@@ -8,7 +8,8 @@ const suffix = randomUUID().replaceAll("-", "");
 const tenantIds: string[] = []; const userIds: string[] = [];
 const password = createOpaqueToken();
 async function request(path: string, cookie?: string, method = "GET", body?: unknown) {
-  return fetch(`${process.env.APP_URL}${path}`, { method, redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(30_000), headers: { "Content-Type": "application/json", ...(cookie ? { cookie } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const target = new URL(`${process.env.APP_URL}${path}`); const tenantId = target.searchParams.get("tenantId");
+  return fetch(target, { method, redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(30_000), headers: { "Content-Type": "application/json", ...(tenantId ? { "x-tenant-id": tenantId } : {}), ...(cookie ? { cookie } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
 async function user(tenantId: string, role: Role) {
   const fixture = await db.user.create({ data: { name: `Synthetic HTTP ${role}`, email: `crm-http-${randomUUID()}-${suffix}@example.invalid`, status: "ACTIVE", passwordHash: await hashPassword(password) } }); userIds.push(fixture.id);
