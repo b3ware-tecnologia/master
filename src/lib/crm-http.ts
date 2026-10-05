@@ -11,7 +11,7 @@ export async function crmRoute(request: NextRequest, platform: boolean, operatio
     const actor = await conversationActor(request, platform);
     let result;
     switch (operation) {
-      case "list": result = await listCRMCases(actor, crmPageSchema.parse(request.nextUrl.searchParams.get("page") ?? 1), z.enum(["OPEN", "NEW", "IN_PROGRESS", "WAITING_CUSTOMER", "COMPLETED", "CANCELLED"]).optional().parse(request.nextUrl.searchParams.get("status") ?? undefined)); break;
+      case "list": result = await listCRMCases(actor, crmPageSchema.parse(request.nextUrl.searchParams.get("page") ?? 1), z.enum(["OPEN", "NEW", "IN_PROGRESS", "WAITING_CUSTOMER", "COMPLETED", "CANCELLED"]).optional().parse(request.nextUrl.searchParams.get("status") ?? undefined), { due: request.nextUrl.searchParams.get("due") ?? undefined, q: request.nextUrl.searchParams.get("q") ?? undefined }); break;
       case "create": result = await createCRMCase(actor, createCaseSchema.parse(await request.json())); break;
       case "detail": result = await getCRMCase(actor, id!); break;
       case "update": result = await changeCRMCase(actor, id!, caseActionSchema.parse(await request.json())); break;

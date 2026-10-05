@@ -1,11 +1,13 @@
 import { z } from "zod";
 import { MessagingProviderUnavailable, type ConnectionState, type WebhookMessagingProvider, type SendingMessagingProvider, type PairingResult } from "@/domain/messaging-provider";
+import { mediaMaxBytes, MessageMediaUnavailable, validateMedia, type MessageMediaProvider } from "@/domain/message-media";
+import type { MessageKind } from "@prisma/client";
 
 export const evolutionContractVersion = "2.3.7";
 const responseSchema = z.object({ instance: z.object({ instanceName: z.string(), state: z.enum(["open", "connecting", "close"]) }) });
 const createdSchema = z.object({ instance: z.object({ instanceName: z.string(), integration: z.literal("WHATSAPP-BAILEYS") }) });
 const qrSchema = z.string().max(200_000).regex(/^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/);
-export class EvolutionProvider implements WebhookMessagingProvider, SendingMessagingProvider {
+export class EvolutionProvider implements WebhookMessagingProvider, SendingMessagingProvider, MessageMediaProvider {
   readonly name = "EVOLUTION";
   constructor(private readonly baseUrl: string, private readonly apiKey: string, private readonly transport: typeof fetch = fetch) {
     let url: URL;
@@ -40,6 +42,25 @@ export class EvolutionProvider implements WebhookMessagingProvider, SendingMessa
       return { providerMessageId: result.key.id, remoteJid: result.key.remoteJid };
     } catch { throw new MessagingProviderUnavailable("INVALID_RESPONSE"); }
     // A timeout, HTTP error or malformed response may follow an accepted send. Never retry here.
+  }
+  async getMessageMedia(instanceName: string, key: { id: string; remoteJid: string; fromMe: boolean }, kind: MessageKind) {
+    this.validateInstance(instanceName);
+    if (!key.id || key.id.length > 200 || !/^[A-Za-z0-9_-]{1,80}@(s\.whatsapp\.net|lid)$/.test(key.remoteJid) || !["IMAGE", "AUDIO", "VIDEO", "DOCUMENT"].includes(kind)) throw new MessageMediaUnavailable("INVALID_MEDIA");
+    const response = await this.request(`/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`, "POST", { message: { key }, convertToMp4: false });
+    // Bound the encoded response before JSON parsing or allocating decoded media.
+    const maxEncodedBytes = Math.ceil(mediaMaxBytes / 3) * 4 + 16_384;
+    if (Number(response.headers.get("content-length")) > maxEncodedBytes) { await response.body?.cancel(); throw new MessageMediaUnavailable("MEDIA_TOO_LARGE"); }
+    if (!response.body) throw new MessageMediaUnavailable("MEDIA_UNAVAILABLE");
+    const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+    try {
+      while (true) { const next = await reader.read(); if (next.done) break; size += next.value.byteLength; if (size > maxEncodedBytes) { await reader.cancel(); throw new MessageMediaUnavailable("MEDIA_TOO_LARGE"); } chunks.push(next.value); }
+    } catch (error) { if (error instanceof MessageMediaUnavailable) throw error; throw new MessageMediaUnavailable("MEDIA_UNAVAILABLE"); }
+    finally { reader.releaseLock(); }
+    try {
+      const expectedType = { IMAGE: "imageMessage", AUDIO: "audioMessage", VIDEO: "videoMessage", DOCUMENT: "documentMessage" }[kind as "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT"];
+      const value = z.object({ mediaType: z.literal(expectedType), mimetype: z.string().max(160), base64: z.string().max(Math.ceil(mediaMaxBytes / 3) * 4).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/) }).parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      return validateMedia(kind, value.mimetype, Buffer.from(value.base64, "base64"));
+    } catch (error) { if (error instanceof MessageMediaUnavailable) throw error; throw new MessageMediaUnavailable("INVALID_MEDIA"); }
   }
   async ensureInstance(instanceName: string): Promise<void> {
     this.validateInstance(instanceName);
@@ -88,7 +109,7 @@ export class EvolutionProvider implements WebhookMessagingProvider, SendingMessa
     }
   }
 }
-export function configuredEvolutionProvider(): WebhookMessagingProvider & SendingMessagingProvider {
+export function configuredEvolutionProvider(): WebhookMessagingProvider & SendingMessagingProvider & MessageMediaProvider {
   if (!process.env.EVOLUTION_API_URL || !process.env.EVOLUTION_API_KEY) throw new MessagingProviderUnavailable("NOT_CONFIGURED");
   return new EvolutionProvider(process.env.EVOLUTION_API_URL, process.env.EVOLUTION_API_KEY);
 }

@@ -8,12 +8,22 @@ import { logger } from "@/lib/logger";
 export const sessionCookieName = "bm_session";
 export const tenantCookieName = "bm_tenant";
 
-export async function resolveAuthorizationContext(requestedTenantId?: string | null): Promise<AuthorizationContext> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(sessionCookieName)?.value;
+export async function authenticatedSession() {
+  const token = (await cookies()).get(sessionCookieName)?.value;
   if (!token) throw new AuthenticationError("Authentication required");
   const session = await db.session.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: { include: { memberships: { include: { tenant: true } } } } } });
   if (!session || session.expiresAt <= new Date() || session.user.status !== "ACTIVE") throw new AuthenticationError("Authentication required");
+  return session;
+}
+
+export async function availableTenants() {
+  const session = await authenticatedSession();
+  return session.user.memberships.filter((item) => item.status === "ACTIVE" && item.tenant.status === "ACTIVE" && item.role !== "PLATFORM_ADMIN").map((item) => ({ id: item.tenantId, name: item.tenant.name, role: item.role })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function resolveAuthorizationContext(requestedTenantId?: string | null): Promise<AuthorizationContext> {
+  const cookieStore = await cookies();
+  const session = await authenticatedSession();
   const memberships = session.user.memberships.filter((item) => item.status === "ACTIVE" && item.tenant.status === "ACTIVE" && item.role !== "PLATFORM_ADMIN");
   const selectedTenantId = requestedTenantId ?? cookieStore.get(tenantCookieName)?.value;
   const membership = selectedTenantId ? memberships.find((item) => item.tenantId === selectedTenantId) : memberships.length === 1 ? memberships[0] : undefined;
@@ -23,10 +33,8 @@ export async function resolveAuthorizationContext(requestedTenantId?: string | n
 }
 
 export async function requirePlatformAdmin() {
-  const token = (await cookies()).get(sessionCookieName)?.value;
-  if (!token) throw new AuthenticationError("Authentication required");
-  const session = await db.session.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: { include: { memberships: true } } } });
-  if (!session || session.expiresAt <= new Date() || session.user.status !== "ACTIVE" || !session.user.memberships.some((item) => item.role === "PLATFORM_ADMIN" && item.status === "ACTIVE")) throw new AuthorizationError("Access denied");
+  const session = await authenticatedSession();
+  if (!session.user.memberships.some((item) => item.role === "PLATFORM_ADMIN" && item.status === "ACTIVE" && item.tenant.status === "ACTIVE")) throw new AuthorizationError("Access denied");
   return session.userId;
 }
 

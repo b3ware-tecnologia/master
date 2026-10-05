@@ -4,11 +4,11 @@ type Database = PrismaClient | Prisma.TransactionClient;
 
 export class UserRepository {
   constructor(private readonly database: Database) {}
-  list(tenantId: string) {
-    return this.database.user.findMany({ where: { memberships: { some: { tenantId } } }, select: { id: true, email: true, name: true, status: true, createdAt: true, updatedAt: true, memberships: { where: { tenantId } }, teamMembers: { where: { tenantId }, include: { team: true } } }, orderBy: { createdAt: "desc" } });
+  list(tenantId: string, visibleTeamIds?: string[]) {
+    return this.database.user.findMany({ where: { memberships: { some: { tenantId } }, ...(visibleTeamIds ? { teamMembers: { some: { tenantId, teamId: { in: visibleTeamIds } } } } : {}) }, select: { id: true, email: true, name: true, status: true, createdAt: true, updatedAt: true, memberships: { where: { tenantId } }, teamMembers: { where: { tenantId, ...(visibleTeamIds ? { teamId: { in: visibleTeamIds } } : {}) }, include: { team: true } } }, orderBy: { createdAt: "desc" } });
   }
-  find(tenantId: string, userId: string) {
-    return this.database.user.findFirst({ where: { id: userId, memberships: { some: { tenantId } } }, select: { id: true, email: true, name: true, status: true, createdAt: true, updatedAt: true, memberships: { where: { tenantId } } } });
+  find(tenantId: string, userId: string, visibleTeamIds?: string[]) {
+    return this.database.user.findFirst({ where: { id: userId, memberships: { some: { tenantId } }, ...(visibleTeamIds ? { teamMembers: { some: { tenantId, teamId: { in: visibleTeamIds } } } } : {}) }, select: { id: true, email: true, name: true, status: true, createdAt: true, updatedAt: true, memberships: { where: { tenantId } } } });
   }
 }
 

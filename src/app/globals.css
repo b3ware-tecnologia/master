@@ -1,4 +1,21 @@
 :root { color-scheme: light; font-family: Inter, system-ui, sans-serif; background: #f5f7fb; color: #182033; }
+.tenant-selector { margin-top: 24px; }
+.tenant-selector label { display: grid; gap: 8px; font-size: 14px; }
+.tenant-selector select { max-width: 100%; padding: 10px; border: 1px solid #cbd2e1; border-radius: 8px; background: white; color: #182033; }
+.account-actions { margin-top: 24px; }
+.account-actions button { background: transparent; color: white; border: 1px solid #657499; padding: 10px; border-radius: 8px; cursor: pointer; }
+.metrics-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.metric h2 { margin-top: 0; font-size: 16px; font-weight: 500; }
+.metric > strong { font-size: 36px; color: #315efb; }
+.metric p { color: #58647b; font-size: 13px; }
+.stage-links { display: flex; gap: 16px; flex-wrap: wrap; }
+.stage-links a { background: #eef2ff; border-radius: 8px; padding: 12px; }
+.table-scroll { overflow-x: auto; }
+.table-scroll a { color: #315efb; }
+.message-download { margin-top: 12px; }
+.message-download button { padding: 8px 12px; border: 1px solid #cbd2e1; background: white; border-radius: 8px; cursor: pointer; }
+@media (max-width: 1000px) { .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .metrics-grid { grid-template-columns: 1fr; } }
 * { box-sizing: border-box; }
 body { margin: 0; }
 a { color: inherit; text-decoration: none; }

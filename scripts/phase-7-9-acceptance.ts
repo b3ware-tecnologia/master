@@ -25,7 +25,7 @@ async function main() {
     const platform = { tenantId: tenant.id, platformUserId: admin.context.userId };
     const preparedTeam = await createCRMTeam(platform, { name: "Prepared team" });
     const invite = await inviteCRMUser(platform, { email: `invite-${suffix}@example.invalid`, name: "Invited synthetic consultant", role: "CONSULTANT", teamId: preparedTeam.id });
-    assert(invite.activationUrl.includes("/activate?token="));
+    assert(invite.activationUrl.includes("/activate#token="));
     assert.equal((await db.membership.findUniqueOrThrow({ where: { id: invite.membershipId } })).status, "INVITED");
     await assert.rejects(inviteCRMUser(platform, { email: (await db.user.findUniqueOrThrow({ where: { id: foreignMaster.context.userId } })).email, name: "Existing foreign account", role: "CONSULTANT" }), /senha existente/);
     await assert.rejects(inviteCRMUser(managerA, { email: `denied-${suffix}@example.invalid`, name: "Forbidden invitation", role: "CONSULTANT" }));

@@ -12,7 +12,7 @@ export const connectionSchema = z.object({ tenantId: z.string().min(1), instance
 export async function registerEvolutionConnection(platformUserId: string, value: z.infer<typeof connectionSchema>) {
   const input = connectionSchema.parse(value);
   try { return await db.$transaction(async (transaction) => {
-    if (!await transaction.user.findFirst({ where: { id: platformUserId, status: "ACTIVE", memberships: { some: { role: "PLATFORM_ADMIN", status: "ACTIVE" } } } })) throw new AuthorizationError("Platform administrator required");
+    if (!await transaction.user.findFirst({ where: { id: platformUserId, status: "ACTIVE", memberships: { some: { role: "PLATFORM_ADMIN", status: "ACTIVE", tenant: { status: "ACTIVE" } } } } })) throw new AuthorizationError("Platform administrator required");
     if (!await transaction.tenant.findFirst({ where: { id: input.tenantId, status: "ACTIVE" } })) throw new NotFoundError();
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`messaging-connection:${input.tenantId}`}, 0))`;
     const existing = await transaction.messagingConnection.findUnique({ where: { tenantId: input.tenantId } });
@@ -43,7 +43,7 @@ export async function checkMessagingConnection(context: AuthorizationContext, pr
 }
 
 async function requireActivePlatformUser(transaction: Prisma.TransactionClient, userId: string) {
-  if (!await transaction.user.findFirst({ where: { id: userId, status: "ACTIVE", memberships: { some: { role: "PLATFORM_ADMIN", status: "ACTIVE" } } } })) throw new AuthorizationError("Platform administrator required");
+  if (!await transaction.user.findFirst({ where: { id: userId, status: "ACTIVE", memberships: { some: { role: "PLATFORM_ADMIN", status: "ACTIVE", tenant: { status: "ACTIVE" } } } } })) throw new AuthorizationError("Platform administrator required");
 }
 
 type ConnectionActor = { userId: string; tenantId: string; context?: AuthorizationContext };

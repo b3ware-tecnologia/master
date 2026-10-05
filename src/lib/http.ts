@@ -4,8 +4,10 @@ import { AuthenticationError, AuthorizationError, ConflictError, NotFoundError }
 import { MessagingProviderUnavailable } from "@/domain/messaging-provider";
 import { AIUnavailable } from "@/domain/conversation-ai";
 import { OutboundDisabled } from "@/domain/outbound";
+import { MessageMediaUnavailable } from "@/domain/message-media";
 
 export function apiError(error: unknown) {
+  if (error instanceof MessageMediaUnavailable) return NextResponse.json({ error: error.message, code: error.code }, { status: error.code === "MEDIA_TOO_LARGE" ? 413 : 409, headers: { "Cache-Control": "private, no-store" } });
   if (error instanceof OutboundDisabled) return NextResponse.json({ error: error.message, code: "OUTBOUND_DISABLED" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   if (error instanceof AIUnavailable) return NextResponse.json({ error: "IA indisponível. Configure a integração ou tente novamente.", code: error.code }, { status: 503, headers: { "Cache-Control": "no-store" } });
   if (error instanceof AuthenticationError) return NextResponse.json({ error: "Authentication required" }, { status: 401 });

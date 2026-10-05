@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import type { Capability } from "@/domain/access";
 import { AuthorizationError, ConflictError, NotFoundError } from "@/domain/errors";
-import { assignmentSchema, caseActionSchema, createCaseSchema, createCRMCustomerSchema, crmTeamSchema, crmInviteSchema, crmTeamMemberSchema, transitions } from "@/domain/crm";
+import { assignmentSchema, caseActionSchema, caseFiltersSchema, createCaseSchema, createCRMCustomerSchema, crmTeamSchema, crmInviteSchema, crmTeamMemberSchema, transitions } from "@/domain/crm";
 import { db } from "@/lib/db";
 import type { ConversationActor } from "@/services/conversation-service";
 import { authorizeTenantMember, customerScope } from "@/services/customer-scope";
@@ -29,11 +29,12 @@ function scopedCase(actor: CRMActor): Prisma.CRMCaseWhereInput { return { tenant
 const assignmentSelect = { id: true, version: true, teamId: true, assignedMembershipId: true, team: { select: { name: true } }, assignedMembership: { select: { user: { select: { name: true } } } } } satisfies Prisma.CustomerAssignmentSelect;
 const caseSelect = { id: true, title: true, status: true, version: true, dueAt: true, updatedAt: true, customerId: true, conversationId: true, customer: { select: { id: true, fullName: true, assignment: { select: assignmentSelect } } } } satisfies Prisma.CRMCaseSelect;
 
-export async function listCRMCases(actor: CRMActor, page = 1, status?: string) {
+export async function listCRMCases(actor: CRMActor, page = 1, status?: string, filters: { due?: string; q?: string } = {}) {
   return db.$transaction(async (transaction) => {
     await authorize(transaction, actor, "crm.read");
-    const where: Prisma.CRMCaseWhereInput = { ...scopedCase(actor), ...(status === "OPEN" ? { status: { in: ["NEW", "IN_PROGRESS", "WAITING_CUSTOMER"] } } : status ? { status: z.enum(["NEW", "IN_PROGRESS", "WAITING_CUSTOMER", "COMPLETED", "CANCELLED"]).parse(status) } : {}) };
-    const [items, total] = await Promise.all([transaction.cRMCase.findMany({ where, select: caseSelect, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], take: 25, skip: (page - 1) * 25 }), transaction.cRMCase.count({ where })]);
+    const parsed = caseFiltersSchema.parse(filters); const now = new Date();
+    const where: Prisma.CRMCaseWhereInput = { ...scopedCase(actor), ...(status === "OPEN" ? { status: { in: ["NEW", "IN_PROGRESS", "WAITING_CUSTOMER"] } } : status ? { status: z.enum(["NEW", "IN_PROGRESS", "WAITING_CUSTOMER", "COMPLETED", "CANCELLED"]).parse(status) } : {}), ...(parsed.due === "OVERDUE" ? { dueAt: { lt: now } } : parsed.due === "NEXT_24H" ? { dueAt: { gte: now, lte: new Date(now.getTime() + 24 * 3600_000) } } : parsed.due === "UNSCHEDULED" ? { dueAt: null } : {}), ...(parsed.q ? { OR: [{ title: { contains: parsed.q, mode: "insensitive" } }, { customer: { fullName: { contains: parsed.q, mode: "insensitive" } } }] } : {}) };
+    const [items, total] = await Promise.all([transaction.cRMCase.findMany({ where, select: caseSelect, orderBy: parsed.due === "OVERDUE" || parsed.due === "NEXT_24H" ? [{ dueAt: "asc" }, { id: "asc" }] : [{ updatedAt: "desc" }, { id: "desc" }], take: 25, skip: (page - 1) * 25 }), transaction.cRMCase.count({ where })]);
     return { items, total, page, pageSize: 25 };
   });
 }
@@ -172,7 +173,7 @@ export async function crmSetupDirectory(actor: CRMActor) {
     const managerId = "context" in actor && actor.context.accessScope === "TEAM" ? actor.context.userId : null;
     const [teams, members] = await Promise.all([
       transaction.team.findMany({ where: { tenantId: actor.tenantId, status: "ACTIVE", ...(managerId ? { members: { some: { tenantId: actor.tenantId, userId: managerId } } } : {}) }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-      transaction.membership.findMany({ where: { tenantId: actor.tenantId, role: { in: ["TENANT_MASTER", "TENANT_MANAGER", "CONSULTANT"] }, status: { in: ["ACTIVE", "INVITED"] }, user: { status: { in: ["ACTIVE", "INVITED"] } } }, select: { id: true, role: true, status: true, user: { select: { name: true, email: true } } }, orderBy: { createdAt: "asc" }, take: 200 }),
+      transaction.membership.findMany({ where: { tenantId: actor.tenantId, role: { in: ["TENANT_MASTER", "TENANT_MANAGER", "CONSULTANT"] }, status: { in: ["ACTIVE", "INVITED"] }, user: { status: { in: ["ACTIVE", "INVITED"] }, ...(managerId ? { teamMembers: { some: { tenantId: actor.tenantId, team: { status: "ACTIVE", members: { some: { tenantId: actor.tenantId, userId: managerId } } } } } } : {}) } }, select: { id: true, role: true, status: true, user: { select: { name: true, email: true } } }, orderBy: { createdAt: "asc" }, take: 200 }),
     ]);
     return { teams, members };
   });
@@ -200,13 +201,14 @@ export async function inviteCRMUser(actor: CRMActor, input: z.infer<typeof crmIn
     const token = createOpaqueToken(); const expiresAt = new Date(Date.now() + 48 * 3600_000);
     await transaction.inviteToken.create({ data: { tenantId: actor.tenantId, userId: user.id, tokenHash: hashToken(token), expiresAt } });
     await recordEvent(transaction, { tenantId: actor.tenantId, actorUserId: actorId(actor), action: "USER_INVITED", entityType: "Membership", entityId: membership.id, metadata: { role: data.role, teamId: data.teamId ?? null } });
-    return { membershipId: membership.id, activationUrl: `${process.env.APP_URL}/activate?token=${encodeURIComponent(token)}`, expiresAt };
+    return { membershipId: membership.id, activationUrl: `${process.env.APP_URL}/activate#token=${encodeURIComponent(token)}`, expiresAt };
   });
 }
 export async function addCRMTeamMember(actor: CRMActor, input: z.infer<typeof crmTeamMemberSchema>) {
   const data = crmTeamMemberSchema.parse(input);
   return db.$transaction(async (transaction) => {
     await authorize(transaction, actor, "teams.manage_members");
+    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`team-lifecycle:${data.teamId}`}, 0))`;
     const managerId = "context" in actor && actor.context.accessScope === "TEAM" ? actor.context.userId : null;
     if (!await transaction.team.findFirst({ where: { id: data.teamId, tenantId: actor.tenantId, status: "ACTIVE", ...(managerId ? { members: { some: { tenantId: actor.tenantId, userId: managerId } } } : {}) } })) throw new NotFoundError();
     const member = await transaction.membership.findFirst({ where: { id: data.membershipId, tenantId: actor.tenantId, status: { in: ["ACTIVE", "INVITED"] }, role: { in: ["TENANT_MASTER", "TENANT_MANAGER", "CONSULTANT"] }, user: { status: { in: ["ACTIVE", "INVITED"] } } } });

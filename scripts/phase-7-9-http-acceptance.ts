@@ -48,7 +48,7 @@ async function main() {
     const inviteEmail = `crm-invite-${suffix}@example.invalid`;
     const invited = await request(`${base}/invitations${query}`, master.cookie, "POST", { name: "Synthetic HTTP invite", email: inviteEmail, role: "CONSULTANT", teamId: team.id }); assert.equal(invited.status, 200);
     const invitation = await invited.json(); const invitedUser = await db.user.findUniqueOrThrow({ where: { email: inviteEmail } }); userIds.push(invitedUser.id);
-    const activationToken = new URL(invitation.activationUrl).searchParams.get("token"); assert(activationToken);
+    const activationToken = new URLSearchParams(new URL(invitation.activationUrl).hash.slice(1)).get("token"); assert(activationToken);
     await db.membership.update({ where: { id: invitation.membershipId }, data: { status: "SUSPENDED" } });
     assert.equal((await request("/api/auth/activate", undefined, "POST", { token: activationToken, password })).status, 409);
     assert.equal((await db.user.findUniqueOrThrow({ where: { id: invitedUser.id } })).passwordHash, null);

@@ -189,7 +189,7 @@ async function main() {
     pass("CUSTOMER_RELATIONSHIP_REGRESSION", { violations: relationshipViolations });
     pass("FACT_VERIFICATION_REGRESSION", { violations: factViolations });
     let crossTenantDenied = false;
-    try { await getImport({ ...context, tenantId: otherTenant.id }, same.id); } catch (error) { crossTenantDenied = error instanceof NotFoundError; }
+    try { await getImport({ ...context, tenantId: otherTenant.id }, same.id); } catch (error) { crossTenantDenied = error instanceof NotFoundError || error instanceof AuthorizationError; }
     assert(crossTenantDenied, "Cross-tenant import read was allowed");
     const foreign = await createImport(otherTenant.id, user.id, "foreign.csv", [{ nome: "Foreign" }]);
     await db.import.update({ where: { id: foreign.id }, data: { lockOwner: "foreign-dead", heartbeatAt: new Date(Date.now() - importStaleTimeoutMs - 1000) } });

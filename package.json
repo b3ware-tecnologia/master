@@ -43,7 +43,12 @@
     "harness:phase10": "tsx scripts/phase-10-acceptance.ts",
     "harness:phase10:staging": "node scripts/phase-2-staging.mjs phase10",
     "harness:phase10:http": "tsx scripts/phase-10-http-acceptance.ts",
-    "bootstrap:outbound-demo:staging": "tsx scripts/bootstrap-outbound-demo-staging.ts"
+    "bootstrap:outbound-demo:staging": "tsx scripts/bootstrap-outbound-demo-staging.ts",
+    "harness:phase11": "tsx scripts/phase-11-acceptance.ts",
+    "harness:phase11:staging": "node scripts/phase-2-staging.mjs phase11",
+    "harness:phase11:http": "tsx scripts/phase-11-http-acceptance.ts",
+    "harness:phase12": "tsx scripts/phase-12-acceptance.ts",
+    "harness:phase12:staging": "node scripts/phase-2-staging.mjs phase12"
   },
   "dependencies": {
     "@prisma/client": "^6.16.2",

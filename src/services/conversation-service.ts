@@ -55,7 +55,7 @@ export async function authorizeConversationActor(transaction: Prisma.Transaction
   if ("context" in actor) {
     requireCapability(actor.context, "messaging.read");
     if (actor.context.tenantId !== actor.tenantId || !await transaction.membership.findFirst({ where: { id: actor.context.membershipId, tenantId: actor.tenantId, userId: actor.context.userId, role: "TENANT_MASTER", status: "ACTIVE", user: { status: "ACTIVE" }, tenant: { status: "ACTIVE" } } })) throw new AuthorizationError();
-  } else if (!await transaction.user.findFirst({ where: { id: actor.platformUserId, status: "ACTIVE", memberships: { some: { role: "PLATFORM_ADMIN", status: "ACTIVE" } } } })) throw new AuthorizationError();
+  } else if (!await transaction.user.findFirst({ where: { id: actor.platformUserId, status: "ACTIVE", memberships: { some: { role: "PLATFORM_ADMIN", status: "ACTIVE", tenant: { status: "ACTIVE" } } } } })) throw new AuthorizationError();
   if (!await transaction.tenant.findFirst({ where: { id: actor.tenantId, status: "ACTIVE" } })) throw new NotFoundError();
 }
 export async function listConversations(actor: ConversationActor, page = 1) {

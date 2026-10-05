@@ -4,6 +4,8 @@ Foundation for a multi-tenant relationship platform.
 
 ## Status
 
+Current consolidated status: [project mechanisms, validation boundaries and remaining operation requirements](docs/project-status.md). The continuation includes [governed outbound](docs/architecture/phase-10-governed-outbound.md) and [operational dashboards, tenant selection, access lifecycle, fenced import recovery and private media downloads](docs/architecture/phase-11-12-operations-media.md). OpenAI activation and real outbound sending remain deferred/disabled.
+
 Staging includes customer import, relationship planning, messaging governance, Evolution provisioning/QR pairing and the conversation inbox. BM Crédito has a verified OPEN WhatsApp device connection, and the requested real incoming text test passed. Conversation AI is implemented but activation remains deferred by the user.
 
 The deployed continuation adds [Phases 7–9: CRM, team distribution and scoped consultant workflow](docs/architecture/phase-7-9-crm-distribution.md), with private tenant and platform screens, notes, guarded stages, return dates and team invitations. Local, isolated database and authenticated deployed HTTP acceptance passed, with browser evidence from a separate fictional demonstration company. The phase document records the validation boundaries.
@@ -12,7 +14,7 @@ Phases 0 and 1 and the initial Phase 2 customer import are merged into `master`.
 
 See [the continuation evidence](docs/architecture/phase-2-continuation-2026-10-05.md) for current validation and remaining release gates.
 
-The continuation implements [messaging governance](docs/architecture/phase-4-messaging-governance.md) and the [Evolution connector](docs/integrations/evolution-api.md). The cumulative continuation is deployed to Railway staging while the original repository PRs remain under review. Evolution provisioning and QR generation passed authenticated live staging acceptance; BM Crédito has now paired its real device. The [conversation inbox](docs/architecture/phase-5-conversations.md) adds authenticated webhooks and durable history. Real inbound text was received and persisted through the provider callback. Governed outbound delivery remains subsequent work; the internal AI integration is implemented with activation deferred.
+The continuation implements [messaging governance](docs/architecture/phase-4-messaging-governance.md) and the [Evolution connector](docs/integrations/evolution-api.md). The cumulative continuation is deployed to Railway staging while the original repository PRs remain under review. Evolution provisioning and QR generation passed authenticated live staging acceptance; BM Crédito has now paired its real device. The [conversation inbox](docs/architecture/phase-5-conversations.md) adds authenticated webhooks and durable history. Real inbound text was received and persisted through the provider callback. Governed outbound is implemented with real sending disabled; the internal AI integration is implemented with activation deferred.
 
 ## Stack
 
