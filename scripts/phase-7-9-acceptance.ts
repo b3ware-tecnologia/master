@@ -27,6 +27,7 @@ async function main() {
     const invite = await inviteCRMUser(platform, { email: `invite-${suffix}@example.invalid`, name: "Invited synthetic consultant", role: "CONSULTANT", teamId: preparedTeam.id });
     assert(invite.activationUrl.includes("/activate?token="));
     assert.equal((await db.membership.findUniqueOrThrow({ where: { id: invite.membershipId } })).status, "INVITED");
+    await assert.rejects(inviteCRMUser(platform, { email: (await db.user.findUniqueOrThrow({ where: { id: foreignMaster.context.userId } })).email, name: "Existing foreign account", role: "CONSULTANT" }), /senha existente/);
     await assert.rejects(inviteCRMUser(managerA, { email: `denied-${suffix}@example.invalid`, name: "Forbidden invitation", role: "CONSULTANT" }));
     await assert.rejects(crmSetupDirectory(consultantA));
     const added = await Promise.all([addCRMTeamMember(platform, { teamId: preparedTeam.id, membershipId: consultantC.context.membershipId }), addCRMTeamMember(platform, { teamId: preparedTeam.id, membershipId: consultantC.context.membershipId })]); assert.equal(added[0].id, added[1].id);

@@ -192,7 +192,7 @@ export async function inviteCRMUser(actor: CRMActor, input: z.infer<typeof crmIn
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`crm-invite:${email}`}, 0))`;
     if (data.teamId && !await transaction.team.findFirst({ where: { id: data.teamId, tenantId: actor.tenantId, status: "ACTIVE" } })) throw new NotFoundError();
     const user = await transaction.user.upsert({ where: { email }, create: { email, name: data.name, status: "INVITED" }, update: {}, select: { id: true, status: true } });
-    if (user.status !== "ACTIVE" && user.status !== "INVITED") throw new ConflictError("Este usuário não está disponível para convite.");
+    if (user.status !== "INVITED") throw new ConflictError("Esta conta já possui acesso ou não está disponível para convite. O convite não pode redefinir uma senha existente.");
     if (await transaction.membership.findUnique({ where: { userId_tenantId: { tenantId: actor.tenantId, userId: user.id } } })) throw new ConflictError("O usuário já possui vínculo com esta empresa.");
     const membership = await transaction.membership.create({ data: { tenantId: actor.tenantId, userId: user.id, role: data.role, status: "INVITED" } });
     if (data.teamId) await transaction.teamMember.create({ data: { tenantId: actor.tenantId, teamId: data.teamId, userId: user.id } });

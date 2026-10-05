@@ -24,11 +24,13 @@ export class UserService {
     const email = input.email.trim().toLowerCase();
     const token = createOpaqueToken();
     const result = await db.$transaction(async (transaction) => {
+      await authorizeTenantMember(transaction, context, "users.create");
       const user = await transaction.user.upsert({
         where: { email }, update: {}, create: { email, name: input.name, status: "INVITED" }, select: { id: true, name: true, email: true, status: true },
       });
       const existing = await transaction.membership.findUnique({ where: { userId_tenantId: { userId: user.id, tenantId: context.tenantId } } });
       if (existing) throw new ConflictError("User already belongs to this tenant");
+      if (user.status !== "INVITED") throw new ConflictError("Existing accounts cannot reset their credentials through an invitation");
       const membership = await transaction.membership.create({ data: { userId: user.id, tenantId: context.tenantId, role: input.role, status: "INVITED" } });
       await transaction.inviteToken.create({ data: { userId: user.id, tenantId: context.tenantId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000) } });
       await recordEvent(transaction, { tenantId: context.tenantId, actorUserId: context.userId, action: "USER_INVITED", entityType: "User", entityId: user.id, metadata: { role: input.role } });

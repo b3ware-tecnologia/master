@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { Role } from "@prisma/client";
 import { db } from "@/lib/db";
-import { createOpaqueToken, hashPassword } from "@/lib/auth/crypto";
+import { createOpaqueToken, hashPassword, hashToken } from "@/lib/auth/crypto";
 
 const suffix = randomUUID().replaceAll("-", "");
 const tenantIds: string[] = []; const userIds: string[] = [];
@@ -49,8 +49,21 @@ async function main() {
     const invited = await request(`${base}/invitations${query}`, master.cookie, "POST", { name: "Synthetic HTTP invite", email: inviteEmail, role: "CONSULTANT", teamId: team.id }); assert.equal(invited.status, 200);
     const invitation = await invited.json(); const invitedUser = await db.user.findUniqueOrThrow({ where: { email: inviteEmail } }); userIds.push(invitedUser.id);
     const activationToken = new URL(invitation.activationUrl).searchParams.get("token"); assert(activationToken);
+    await db.membership.update({ where: { id: invitation.membershipId }, data: { status: "SUSPENDED" } });
+    assert.equal((await request("/api/auth/activate", undefined, "POST", { token: activationToken, password })).status, 409);
+    assert.equal((await db.user.findUniqueOrThrow({ where: { id: invitedUser.id } })).passwordHash, null);
+    assert.equal((await db.inviteToken.findUniqueOrThrow({ where: { tokenHash: hashToken(activationToken) } })).usedAt, null);
+    await db.membership.update({ where: { id: invitation.membershipId }, data: { status: "INVITED" } });
     assert.equal((await request("/api/auth/activate", undefined, "POST", { token: activationToken, password })).status, 200);
     assert.equal((await request("/api/auth/activate", undefined, "POST", { token: activationToken, password })).status, 400);
+    const existingUser = await db.user.findUniqueOrThrow({ where: { id: foreignMaster.id } });
+    assert.equal((await request(`${base}/invitations${query}`, master.cookie, "POST", { name: "Forbidden existing account", email: existingUser.email, role: "CONSULTANT" })).status, 409);
+    assert.equal((await request("/api/users", master.cookie, "POST", { name: "Forbidden legacy invite", email: existingUser.email, role: "CONSULTANT" })).status, 409);
+    const legacyToken = createOpaqueToken();
+    await db.inviteToken.create({ data: { tenantId: foreign.id, userId: existingUser.id, tokenHash: hashToken(legacyToken), expiresAt: new Date(Date.now() + 3600_000) } });
+    assert.equal((await request("/api/auth/activate", undefined, "POST", { token: legacyToken, password: createOpaqueToken() })).status, 400);
+    assert.equal((await db.user.findUniqueOrThrow({ where: { id: existingUser.id } })).passwordHash, existingUser.passwordHash);
+    assert.equal(await db.membership.count({ where: { tenantId: tenant.id, userId: existingUser.id } }), 0);
     assert.equal((await request(`${base}/setup${query}`, consultant.cookie)).status, 403);
     const setup = await request(`${base}/setup${query}`, master.cookie); assert.equal(setup.status, 200); assert(!(JSON.stringify(await setup.json()).includes("passwordHash")));
     const assignmentPath = `${base}/customers/${customer.id}/assignment${query}`;
@@ -76,7 +89,7 @@ async function main() {
     assert.equal((await request(`/api/platform/crm/cases/${item.id}?tenantId=${foreign.id}`, admin.cookie)).status, 404);
     await db.membership.update({ where: { id: other.membershipId }, data: { status: "SUSPENDED" } }); assert.equal((await request(casePath, other.cookie)).status, 403);
     for (const value of [JSON.stringify(await db.auditEvent.findMany({ where: { tenantId: tenant.id } })), JSON.stringify(await db.outboxEvent.findMany({ where: { tenantId: tenant.id } }))]) assert(!value.includes("Synthetic private HTTP message") && !value.includes("Synthetic HTTP completed outcome"));
-    console.log(JSON.stringify({ result: "PASS", deployedHttp: true, phases: [7, 8, 9], rolesAndScope: true, reassignmentRevokesAccess: true, versionAndTerminalGuards: true, invitationSingleUse: true, credentialFieldsExcluded: true, realProviderCalls: 0, messagesSent: 0 }));
+    console.log(JSON.stringify({ result: "PASS", deployedHttp: true, phases: [7, 8, 9], rolesAndScope: true, reassignmentRevokesAccess: true, versionAndTerminalGuards: true, invitationSingleUse: true, existingAccountPasswordResetBlocked: true, credentialFieldsExcluded: true, realProviderCalls: 0, messagesSent: 0 }));
   } finally {
     await db.$transaction(async (transaction) => {
       assert.equal(await transaction.tenant.count({ where: { id: { in: tenantIds }, slug: { endsWith: suffix } } }), tenantIds.length);

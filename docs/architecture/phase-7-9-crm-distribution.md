@@ -12,7 +12,9 @@ Distribution assigns the customer's cases to an active team, with an optional ac
 
 Consultants see only assigned customers and cases. They record notes, start work, wait for a customer, schedule a future return, and close/cancel with a mandatory recorded result. The stages are `NEW → IN_PROGRESS → WAITING_CUSTOMER/COMPLETED/CANCELLED`; waiting cases may resume or close. Terminal cases cannot change. A scheduled return is a persisted date shown in the queue; it is not an automatic reminder or message. Cases display up to 50 recent notes and, when explicitly linked, up to 50 source conversation messages. Media download and outbound replies remain separate work.
 
-CRM setup supports creating teams, adding existing tenant members and generating an invitation for a master, manager or consultant, optionally in a team. The invitee sets their own password through the existing single-use activation flow. Invitations expire after 48 hours and are not automatically emailed. Invited users cannot receive cases until activation. Synthetic demo users have no permanent credentials.
+CRM setup supports creating teams, adding existing tenant members and generating an invitation for a new master, manager or consultant, optionally in a team. The invitee sets their own password through the single-use activation flow. Invitations expire after 48 hours and are not automatically emailed. Invited users cannot receive cases until activation. Synthetic demo users have no permanent credentials.
+
+Invitations cannot reset credentials or grant another tenant membership to an existing active global account. Both CRM and legacy user invitation services reject that path; activation rejects existing active/suspended/disabled accounts and revalidates the invited membership and active tenant atomically. Adding an already active account to another company needs a future verified account-acceptance flow. Existing members of the selected tenant can still join its teams without any password change.
 
 ## Persistence and authorization
 
