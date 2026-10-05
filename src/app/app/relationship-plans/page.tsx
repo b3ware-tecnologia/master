@@ -1,3 +1,4 @@
+import { GovernanceCheckButton } from "@/components/messaging-governance-form";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { resolveAuthorizationContext, requireCapability } from "@/lib/auth/context";
@@ -18,8 +19,8 @@ export default async function PlansPage({ searchParams }: { searchParams: Promis
   const plans = await listPlans(context, customer?.id, page);
   const suffix = customer ? `&customerId=${encodeURIComponent(customer.id)}` : "";
   return <><h1>Planejamento de relacionamento</h1><p>Prepare e aprove cada contato. O agendamento organiza o plano; o envio depende da governança e da conexão do canal.</p>
-    {customer ? <section className="card"><h2>Novo plano para {customer.fullName}</h2><RelationshipPlanForm customerId={customer.id} /></section> : <p>Abra um cliente para criar seu plano de relacionamento. <Link href="/app/customers">Ver clientes</Link></p>}
-    {plans.length ? plans.map((plan) => <section key={plan.id} className="card"><h2><Link href={`/app/customers/${plan.customerId}`}>{plan.customer.fullName}</Link> · {plan.purpose}</h2><p>{statuses[plan.status]} · {channels[plan.channel]} · {plan.scheduledAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} (São Paulo)</p><p style={{ whiteSpace: "pre-wrap" }}>{plan.message}</p><RelationshipPlanActions id={plan.id} status={plan.status} /></section>) : <section className="card"><p>Nenhum plano nesta página.</p></section>}
+    {customer ? <section className="card"><h2>Novo plano para {customer.fullName}</h2><RelationshipPlanForm customerId={customer.id} /><p><Link href={`/app/messaging-governance?customerId=${customer.id}`}>Registrar preferências de contato</Link></p></section> : <p>Abra um cliente para criar seu plano de relacionamento. <Link href="/app/customers">Ver clientes</Link></p>}
+    {plans.length ? plans.map((plan) => <section key={plan.id} className="card"><h2><Link href={`/app/customers/${plan.customerId}`}>{plan.customer.fullName}</Link> · {plan.purpose}</h2><p>{statuses[plan.status]} · {channels[plan.channel]} · {plan.scheduledAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} (São Paulo)</p><p style={{ whiteSpace: "pre-wrap" }}>{plan.message}</p><RelationshipPlanActions id={plan.id} status={plan.status} /><GovernanceCheckButton planId={plan.id} /></section>) : <section className="card"><p>Nenhum plano nesta página.</p></section>}
     <nav className="form" aria-label="Paginação">{page > 1 && <Link href={`/app/relationship-plans?page=${page - 1}${suffix}`}>Anterior</Link>}{plans.length === 50 && <Link href={`/app/relationship-plans?page=${page + 1}${suffix}`}>Próxima</Link>}</nav>
   </>;
 }

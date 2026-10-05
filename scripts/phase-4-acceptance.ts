@@ -1,0 +1,99 @@
+import { randomUUID } from "node:crypto";
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { createRequire } from "node:module";
+import { db } from "@/lib/db";
+import { roleCapabilities, type AuthorizationContext } from "@/domain/access";
+import { AuthorizationError, NotFoundError } from "@/domain/errors";
+import { createPlan, changePlan } from "@/services/relationship-plan-service";
+import { saveMessagingPolicy, saveCommunicationPreference, checkPlanGovernance } from "@/services/messaging-governance";
+import { assertTestHooksAllowed } from "@/services/test-hooks";
+import { createOpaqueToken, hashToken } from "@/lib/auth/crypto";
+
+async function main() {
+  assertTestHooksAllowed(true);
+  const schema = process.env.ACCEPTANCE_ISOLATED_SCHEMA;
+  assert(schema && /^phase4_acceptance_[a-f0-9]{32}$/.test(schema));
+  assert.equal(new URL(process.env.DATABASE_URL!).searchParams.get("schema"), schema);
+  const suffix = randomUUID();
+  const tenant = await db.tenant.create({ data: { name: "Synthetic Governance", slug: `governance-${suffix}` } });
+  const foreign = await db.tenant.create({ data: { name: "Foreign Governance", slug: `foreign-${suffix}` } });
+  const user = await db.user.create({ data: { name: "Synthetic Governance", email: `${suffix}@example.invalid`, status: "ACTIVE" } });
+  const membership = await db.membership.create({ data: { tenantId: tenant.id, userId: user.id, role: "TENANT_MASTER", status: "ACTIVE" } });
+  const context: AuthorizationContext = { tenantId: tenant.id, userId: user.id, membershipId: membership.id, role: "TENANT_MASTER", accessScope: "TENANT", capabilities: roleCapabilities.TENANT_MASTER };
+  const customer = await db.customer.create({ data: { tenantId: tenant.id, displayName: "Synthetic Customer", fullName: "Synthetic Customer", identifiers: { create: { type: "PHONE", normalizedValue: "11999991111", verification: "IMPORTED" } } } });
+  const plan = await createPlan(context, { customerId: customer.id, requestKey: randomUUID(), purpose: "Synthetic review", message: "Synthetic message", channel: "WHATSAPP", scheduledAt: new Date(Date.now() + 3600_000).toISOString() });
+  const blocked = await checkPlanGovernance(context, plan.id);
+  assert.equal(blocked.eligible, false);
+  for (const reason of ["PLAN_NOT_APPROVED", "CONSENT_REQUIRED", "NOT_DUE", "POLICY_REQUIRED"]) assert(blocked.reasons.includes(reason));
+  console.log("PASS GOVERNANCE_DEFAULT_BLOCKS");
+  await saveMessagingPolicy(context, { timeZone: "America/Sao_Paulo", startHour: 0, endHour: 24, minIntervalMinutes: 60, enabledChannels: ["WHATSAPP"] });
+  await saveCommunicationPreference(context, customer.id, { channel: "WHATSAPP", consent: "OPTED_IN", evidence: "Synthetic authorization in isolated acceptance fixture" });
+  await changePlan(context, plan.id, "approve");
+  await db.relationshipPlan.update({ where: { id: plan.id }, data: { scheduledAt: new Date(Date.now() - 1000) } });
+  const eligible = await checkPlanGovernance(context, plan.id);
+  assert.equal(eligible.eligible, true);
+  assert.equal(eligible.reasons.length, 0);
+  assert(eligible.policyUpdatedAt && eligible.consentUpdatedAt && eligible.planUpdatedAt);
+  console.log(`PASS GOVERNANCE_ELIGIBILITY ${JSON.stringify({ planId: plan.id, checkId: eligible.id, eligible: true })}`);
+  await saveCommunicationPreference(context, customer.id, { channel: "WHATSAPP", consent: "OPTED_OUT", evidence: "Synthetic withdrawal of contact authorization" });
+  const withdrawn = await checkPlanGovernance(context, plan.id);
+  assert.equal(withdrawn.eligible, false); assert(withdrawn.reasons.includes("CUSTOMER_OPTED_OUT"));
+  await saveCommunicationPreference(context, customer.id, { channel: "WHATSAPP", consent: "OPTED_IN", evidence: "Synthetic subsequent authorization for tests" });
+  await db.customer.update({ where: { id: customer.id }, data: { lastOutboundAt: new Date() } });
+  const cooldown = await checkPlanGovernance(context, plan.id); assert(cooldown.reasons.includes("CONTACT_COOLDOWN"));
+  await assert.rejects(checkPlanGovernance({ ...context, tenantId: foreign.id }, plan.id), NotFoundError);
+  await assert.rejects(saveCommunicationPreference({ ...context, tenantId: foreign.id }, customer.id, { channel: "WHATSAPP", consent: "OPTED_IN", evidence: "Synthetic foreign change attempt" }), NotFoundError);
+  await assert.rejects(saveMessagingPolicy({ ...context, role: "CONSULTANT", capabilities: roleCapabilities.CONSULTANT }, { timeZone: "UTC", startHour: 0, endHour: 24, minIntervalMinutes: 0, enabledChannels: [] }), AuthorizationError);
+  const checks = await db.messagingGovernanceCheck.count({ where: { tenantId: tenant.id, planId: plan.id } });
+  const audits = await db.auditEvent.count({ where: { tenantId: tenant.id, action: "MESSAGING_GOVERNANCE_CHECKED" } });
+  assert.equal(checks, 4); assert.equal(audits, checks);
+  assert.equal((await db.customer.findUniqueOrThrow({ where: { id: customer.id } })).lastContactAt, null);
+  const token = createOpaqueToken();
+  await db.session.create({ data: { userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 600_000) } });
+  const consultant = await db.user.create({ data: { name: "Synthetic Consultant", email: `consultant-${suffix}@example.invalid`, status: "ACTIVE" } });
+  await db.membership.create({ data: { tenantId: tenant.id, userId: consultant.id, role: "CONSULTANT", status: "ACTIVE" } });
+  const consultantToken = createOpaqueToken();
+  await db.session.create({ data: { userId: consultant.id, tokenHash: hashToken(consultantToken), expiresAt: new Date(Date.now() + 600_000) } });
+  const port = 3097;
+  const base = `http://127.0.0.1:${port}`;
+  const require = createRequire(import.meta.url);
+  const server = spawn(process.execPath, [require.resolve("next/dist/bin/next"), "dev", "--hostname", "127.0.0.1", "--port", String(port)], { env: { ...process.env, APP_URL: base, NODE_ENV: "development" }, stdio: "ignore" });
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      try { ready = (await fetch(`${base}/health`)).ok; } catch { /* startup */ }
+      if (ready) break;
+      assert(server.exitCode === null, "HTTP acceptance server exited during startup");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    assert(ready, "HTTP acceptance server did not start");
+    const headers = { cookie: `bm_session=${token}; bm_tenant=${tenant.id}`, "Content-Type": "application/json", origin: base };
+    assert.equal((await fetch(`${base}/api/relationship-plans`)).status, 401);
+    assert.equal((await fetch(`${base}/api/relationship-plans`, { headers })).status, 200);
+    assert.equal((await fetch(`${base}/api/relationship-plans`, { headers: { ...headers, "x-tenant-id": foreign.id } })).status, 403);
+    assert.equal((await fetch(`${base}/api/relationship-plans`, { headers: { ...headers, cookie: `bm_session=${consultantToken}; bm_tenant=${tenant.id}` } })).status, 403);
+    const createdResponse = await fetch(`${base}/api/relationship-plans`, { method: "POST", headers, body: JSON.stringify({ customerId: customer.id, requestKey: randomUUID(), purpose: "HTTP acceptance", message: "Synthetic HTTP message", channel: "WHATSAPP", scheduledAt: new Date(Date.now() + 3600_000).toISOString() }) });
+    assert.equal(createdResponse.status, 201);
+    const created = await createdResponse.json() as { id: string };
+    assert.equal((await fetch(`${base}/api/relationship-plans/${created.id}`, { method: "PATCH", headers, body: JSON.stringify({ action: "approve" }) })).status, 200);
+    const blockedResponse = await fetch(`${base}/api/relationship-plans/${created.id}/governance`, { method: "POST", headers });
+    assert.equal(blockedResponse.status, 200);
+    assert.equal((await blockedResponse.json() as { eligible: boolean }).eligible, false);
+    const ui = await fetch(`${base}/app/relationship-plans?customerId=${customer.id}`, { headers });
+    assert.equal(ui.status, 200); assert((await ui.text()).includes("HTTP acceptance"));
+    assert.equal((await fetch(`${base}/app/messaging-governance?customerId=${customer.id}`, { headers })).status, 200);
+    console.log("PASS AUTHENTICATED_HTTP_PLANNER_GOVERNANCE_AND_PAGES");
+  } finally {
+    const exited = once(server, "exit");
+    server.kill("SIGTERM");
+    const deadline = setTimeout(() => server.kill("SIGKILL"), 5000);
+    deadline.unref();
+    await exited;
+    clearTimeout(deadline);
+  }
+  console.log(`PHASE_4_ACCEPTANCE_JSON=${JSON.stringify({ planId: plan.id, checks, audits, defaultBlocked: true, consentWithdrawalBlocked: true, cooldownBlocked: true, tenantIsolation: true, consultantDenied: true, authenticatedHttpPassed: true, sentMessages: 0 })}`);
+  await db.$disconnect();
+}
+void main().catch(async (error: unknown) => { console.error(error); await db.$disconnect(); process.exitCode = 1; });

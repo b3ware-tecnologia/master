@@ -149,54 +149,59 @@ enum MatchLevel {
 }
 
 model Tenant {
-  id                     String                    @id @default(cuid())
-  name                   String
-  slug                   String                    @unique
-  status                 TenantStatus              @default(ACTIVE)
-  createdAt              DateTime                  @default(now())
-  updatedAt              DateTime                  @updatedAt
-  memberships            Membership[]
-  teams                  Team[]
-  teamMembers            TeamMember[]
-  auditEvents            AuditEvent[]
-  outboxEvents           OutboxEvent[]
-  invites                InviteToken[]
-  customers              Customer[]
-  customerIdentifiers    CustomerIdentifier[]
-  customerFacts          CustomerFact[]
-  customerTags           CustomerTag[]
-  customerLists          CustomerList[]
-  imports                Import[]
-  conflicts              CustomerDataConflict[]
-  timelines              CustomerTimeline[]
-  snapshots              CustomerProfileSnapshot[]
-  importRows             ImportRow[]
-  customerTagAssignments CustomerTagAssignment[]
-  customerSources        CustomerSource[]
-  customerListMembers    CustomerListMember[]
-  importColumnMappings   ImportColumnMapping[]
-  relationshipPlans      RelationshipPlan[]
+  id                       String                     @id @default(cuid())
+  name                     String
+  slug                     String                     @unique
+  status                   TenantStatus               @default(ACTIVE)
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  memberships              Membership[]
+  teams                    Team[]
+  teamMembers              TeamMember[]
+  auditEvents              AuditEvent[]
+  outboxEvents             OutboxEvent[]
+  invites                  InviteToken[]
+  customers                Customer[]
+  customerIdentifiers      CustomerIdentifier[]
+  customerFacts            CustomerFact[]
+  customerTags             CustomerTag[]
+  customerLists            CustomerList[]
+  imports                  Import[]
+  conflicts                CustomerDataConflict[]
+  timelines                CustomerTimeline[]
+  snapshots                CustomerProfileSnapshot[]
+  importRows               ImportRow[]
+  customerTagAssignments   CustomerTagAssignment[]
+  customerSources          CustomerSource[]
+  customerListMembers      CustomerListMember[]
+  importColumnMappings     ImportColumnMapping[]
+  relationshipPlans        RelationshipPlan[]
+  communicationPreferences CommunicationPreference[]
+  messagingPolicy          MessagingPolicy?
+  governanceChecks         MessagingGovernanceCheck[]
 
   @@index([status])
 }
 
 model User {
-  id             String             @id @default(cuid())
-  email          String             @unique
-  name           String
-  passwordHash   String?
-  status         UserStatus         @default(INVITED)
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  memberships    Membership[]
-  teamMembers    TeamMember[]
-  sessions       Session[]
-  invites        InviteToken[]
-  auditEvents    AuditEvent[]       @relation("AuditActor")
-  imports        Import[]           @relation("ImportCreatedBy")
-  timelineEvents CustomerTimeline[] @relation("TimelineActor")
-  createdPlans   RelationshipPlan[] @relation("PlanCreator")
-  approvedPlans  RelationshipPlan[] @relation("PlanApprover")
+  id                       String                     @id @default(cuid())
+  email                    String                     @unique
+  name                     String
+  passwordHash             String?
+  status                   UserStatus                 @default(INVITED)
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  memberships              Membership[]
+  teamMembers              TeamMember[]
+  sessions                 Session[]
+  invites                  InviteToken[]
+  auditEvents              AuditEvent[]               @relation("AuditActor")
+  imports                  Import[]                   @relation("ImportCreatedBy")
+  timelineEvents           CustomerTimeline[]         @relation("TimelineActor")
+  createdPlans             RelationshipPlan[]         @relation("PlanCreator")
+  approvedPlans            RelationshipPlan[]         @relation("PlanApprover")
+  communicationPreferences CommunicationPreference[]
+  governanceChecks         MessagingGovernanceCheck[]
 }
 
 model Membership {
@@ -317,32 +322,33 @@ model OutboxEvent {
 }
 
 model Customer {
-  id                   String                    @id @default(cuid())
-  tenantId             String
-  displayName          String
-  firstName            String?
-  lastName             String?
-  fullName             String
-  status               CustomerStatus            @default(ACTIVE)
-  relationshipState    RelationshipState         @default(NEVER_CONTACTED)
-  lastContactAt        DateTime?
-  lastInboundAt        DateTime?
-  lastOutboundAt       DateTime?
-  archivedAt           DateTime?
-  createdAt            DateTime                  @default(now())
-  updatedAt            DateTime                  @updatedAt
-  tenant               Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  identifiers          CustomerIdentifier[]
-  facts                CustomerFact[]
-  tagAssignments       CustomerTagAssignment[]
-  listMembers          CustomerListMember[]
-  sources              CustomerSource[]
-  importRows           ImportRow[]
-  conflictsAsPrimary   CustomerDataConflict[]    @relation("ConflictPrimary")
-  conflictsAsSecondary CustomerDataConflict[]    @relation("ConflictSecondary")
-  timeline             CustomerTimeline[]
-  snapshots            CustomerProfileSnapshot[]
-  relationshipPlans    RelationshipPlan[]
+  id                       String                    @id @default(cuid())
+  tenantId                 String
+  displayName              String
+  firstName                String?
+  lastName                 String?
+  fullName                 String
+  status                   CustomerStatus            @default(ACTIVE)
+  relationshipState        RelationshipState         @default(NEVER_CONTACTED)
+  lastContactAt            DateTime?
+  lastInboundAt            DateTime?
+  lastOutboundAt           DateTime?
+  archivedAt               DateTime?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  identifiers              CustomerIdentifier[]
+  facts                    CustomerFact[]
+  tagAssignments           CustomerTagAssignment[]
+  listMembers              CustomerListMember[]
+  sources                  CustomerSource[]
+  importRows               ImportRow[]
+  conflictsAsPrimary       CustomerDataConflict[]    @relation("ConflictPrimary")
+  conflictsAsSecondary     CustomerDataConflict[]    @relation("ConflictSecondary")
+  timeline                 CustomerTimeline[]
+  snapshots                CustomerProfileSnapshot[]
+  relationshipPlans        RelationshipPlan[]
+  communicationPreferences CommunicationPreference[]
 
   @@unique([id, tenantId])
   @@index([tenantId, status])
@@ -363,30 +369,85 @@ enum CommunicationChannel {
 }
 
 model RelationshipPlan {
-  id           String                 @id @default(cuid())
-  tenantId     String
-  customerId   String
-  createdById  String
-  approvedById String?
-  requestKey   String
-  purpose      String
-  message      String
-  channel      CommunicationChannel
-  scheduledAt  DateTime
-  status       RelationshipPlanStatus @default(DRAFT)
-  approvedAt   DateTime?
-  cancelledAt  DateTime?
-  createdAt    DateTime               @default(now())
-  updatedAt    DateTime               @updatedAt
-  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer     Customer               @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  creator      User                   @relation("PlanCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  approver     User?                  @relation("PlanApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  id               String                     @id @default(cuid())
+  tenantId         String
+  customerId       String
+  createdById      String
+  approvedById     String?
+  requestKey       String
+  purpose          String
+  message          String
+  channel          CommunicationChannel
+  scheduledAt      DateTime
+  status           RelationshipPlanStatus     @default(DRAFT)
+  approvedAt       DateTime?
+  cancelledAt      DateTime?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer         Customer                   @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  creator          User                       @relation("PlanCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approver         User?                      @relation("PlanApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  governanceChecks MessagingGovernanceCheck[]
 
   @@unique([tenantId, requestKey])
   @@unique([id, tenantId])
   @@index([tenantId, status, scheduledAt])
   @@index([tenantId, customerId])
+}
+
+enum CommunicationConsent {
+  UNKNOWN
+  OPTED_IN
+  OPTED_OUT
+}
+
+model CommunicationPreference {
+  id           String               @id @default(cuid())
+  tenantId     String
+  customerId   String
+  channel      CommunicationChannel
+  consent      CommunicationConsent @default(UNKNOWN)
+  evidence     String
+  recordedById String
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer     Customer             @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  recordedBy   User                 @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, customerId, channel])
+}
+
+model MessagingPolicy {
+  id                 String                 @id @default(cuid())
+  tenantId           String                 @unique
+  timeZone           String
+  startHour          Int
+  endHour            Int
+  minIntervalMinutes Int
+  enabledChannels    CommunicationChannel[]
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  tenant             Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+}
+
+model MessagingGovernanceCheck {
+  id               String           @id @default(cuid())
+  tenantId         String
+  planId           String
+  evaluatedById    String
+  eligible         Boolean
+  reasons          String[]
+  policyUpdatedAt  DateTime?
+  consentUpdatedAt DateTime?
+  planUpdatedAt    DateTime
+  evaluatedAt      DateTime         @default(now())
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  plan             RelationshipPlan @relation(fields: [planId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  evaluatedBy      User             @relation(fields: [evaluatedById], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, planId, evaluatedAt])
 }
 
 model CustomerIdentifier {
