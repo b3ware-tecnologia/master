@@ -10,4 +10,5 @@ coverage/
 .DS_Store
 .prisma/
 *.tsbuildinfo
+.private/
 

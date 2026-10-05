@@ -18,4 +18,6 @@ th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e8ebf2; }
 .form textarea { padding: 10px; border: 1px solid #cbd2e1; border-radius: 8px; width: min(100%, 500px); }
 .form button { border: 0; border-radius: 8px; padding: 10px 16px; background: #315efb; color: white; cursor: pointer; }
 .error { color: #b42318; }
+.pairing-qr { margin-top: 20px; max-width: 520px; }
+.pairing-qr img { display: block; width: 256px; max-width: 100%; height: auto; background: white; }
 @media (max-width: 760px) { .shell { grid-template-columns: 1fr; } .sidebar { padding: 18px; } .sidebar nav { grid-template-columns: repeat(2, 1fr); margin-top: 16px; } .content { padding: 18px; } }

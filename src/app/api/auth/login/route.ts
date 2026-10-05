@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     const attempts = await getRedis().incr(key);
     if (attempts === 1) await getRedis().expire(key, 900);
     if (attempts > 10) return NextResponse.json({ error: "Invalid credentials" }, { status: 429 });
-    const user = await db.user.findUnique({ where: { email } });
+    const user = await db.user.findUnique({ where: { email }, include: { memberships: { select: { role: true, status: true } } } });
     if (!user?.passwordHash || user.status !== "ACTIVE" || !await verifyPassword(input.password, user.passwordHash)) {
       logger.warn({ event: "auth_failure" });
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
@@ -27,7 +27,8 @@ export async function POST(request: NextRequest) {
     await db.$transaction([db.session.deleteMany({ where: { userId: user.id } }), db.session.create({ data: { userId: user.id, tokenHash: hashToken(token), expiresAt } })]);
     await getRedis().del(key);
     logger.info({ event: "auth_success", userId: user.id });
-    const response = NextResponse.json({ ok: true });
+    const isPlatformAdmin = user.memberships.some((membership) => membership.role === "PLATFORM_ADMIN" && membership.status === "ACTIVE");
+    const response = NextResponse.json({ ok: true, redirectTo: isPlatformAdmin ? "/platform" : "/app" });
     response.cookies.set(sessionCookieName, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", expires: expiresAt });
     return response;
   } catch (error) { return apiError(error); }
