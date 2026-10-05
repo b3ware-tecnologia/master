@@ -3,6 +3,18 @@ import { EvolutionProvider } from "@/integrations/evolution-provider";
 import { MessagingProviderUnavailable } from "@/domain/messaging-provider";
 
 describe("Evolution connection adapter", () => {
+  it("configures only selected instance events with a header secret and verifies the readback", async () => {
+    const url = "https://crm.example.invalid/api/webhooks/evolution/binding";
+    const token = "a".repeat(64);
+    const response = { enabled: true, url, headers: { "x-bm-webhook-token": token }, webhookByEvents: false, webhookBase64: false, events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE"] };
+    const transport = vi.fn().mockResolvedValueOnce(Response.json(response, { status: 201 })).mockResolvedValueOnce(Response.json(response));
+    expect(await new EvolutionProvider("https://provider.example.invalid", "key", transport).configureWebhook("bm_test", url, token)).toBeUndefined();
+    expect(transport.mock.calls[0][0]).toBe("https://provider.example.invalid/webhook/set/bm_test");
+    const body = JSON.parse(transport.mock.calls[0][1].body);
+    expect(body.webhook).toMatchObject({ byEvents: false, base64: false, headers: { "x-bm-webhook-token": token } });
+    const wrong = vi.fn().mockResolvedValue(Response.json({ ...response, url: "https://foreign.example.invalid" }));
+    await expect(new EvolutionProvider("https://provider.example.invalid", "key", wrong).configureWebhook("bm_test", url, token)).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
   it("uses the pinned contract endpoint with server header and safe request options", async () => {
     const transport = vi.fn().mockImplementation(async () => Response.json({ instance: { instanceName: "bm_test", state: "open" } }));
     const provider = new EvolutionProvider("https://provider.example.invalid/", "synthetic-key", transport);

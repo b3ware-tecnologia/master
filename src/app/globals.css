@@ -19,5 +19,17 @@ th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e8ebf2; }
 .form button { border: 0; border-radius: 8px; padding: 10px 16px; background: #315efb; color: white; cursor: pointer; }
 .error { color: #b42318; }
 .pairing-qr { margin-top: 20px; max-width: 520px; }
+.inbox-toolbar, .inbox-pagination { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 18px 0; }
+.inbox-toolbar button, .inbox-pagination button { padding: 8px 12px; border: 1px solid #cbd2e1; border-radius: 8px; background: white; cursor: pointer; }
+.inbox-grid { display: grid; grid-template-columns: minmax(230px, 320px) minmax(0, 1fr); gap: 20px; }
+.inbox-contact { display: grid; gap: 8px; width: 100%; text-align: left; background: white; border: 1px solid #dfe4ef; padding: 14px; margin-bottom: 10px; border-radius: 8px; cursor: pointer; overflow-wrap: anywhere; }
+.inbox-contact.selected { border-color: #315efb; background: #eef2ff; }
+.inbox-contact span, .inbox-message small { font-size: 12px; color: #58647b; }
+.inbox-messages { display: grid; gap: 14px; }
+.inbox-message { padding: 14px; border-radius: 10px; background: #f1f4f9; max-width: 90%; overflow-wrap: anywhere; }
+.inbox-message.outbound { justify-self: end; background: #e7f7ed; }
+.inbox-message p { white-space: pre-wrap; margin-bottom: 0; }
+.inbox-media { color: #58647b; font-style: italic; }
+@media (max-width: 760px) { .inbox-grid { grid-template-columns: 1fr; } }
 .pairing-qr img { display: block; width: 256px; max-width: 100%; height: auto; background: white; }
 @media (max-width: 760px) { .shell { grid-template-columns: 1fr; } .sidebar { padding: 18px; } .sidebar nav { grid-template-columns: repeat(2, 1fr); margin-top: 16px; } .content { padding: 18px; } }

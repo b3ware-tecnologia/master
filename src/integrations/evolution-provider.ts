@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { MessagingProviderUnavailable, type ConnectionState, type PairingMessagingProvider, type PairingResult } from "@/domain/messaging-provider";
+import { MessagingProviderUnavailable, type ConnectionState, type WebhookMessagingProvider, type PairingResult } from "@/domain/messaging-provider";
 
 export const evolutionContractVersion = "2.3.7";
 const responseSchema = z.object({ instance: z.object({ instanceName: z.string(), state: z.enum(["open", "connecting", "close"]) }) });
 const createdSchema = z.object({ instance: z.object({ instanceName: z.string(), integration: z.literal("WHATSAPP-BAILEYS") }) });
 const qrSchema = z.string().max(200_000).regex(/^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/);
-export class EvolutionProvider implements PairingMessagingProvider {
+export class EvolutionProvider implements WebhookMessagingProvider {
   readonly name = "EVOLUTION";
   constructor(private readonly baseUrl: string, private readonly apiKey: string, private readonly transport: typeof fetch = fetch) {
     let url: URL;
@@ -45,6 +45,19 @@ export class EvolutionProvider implements PairingMessagingProvider {
     if (parsed.instance.instanceName !== instanceName) throw new MessagingProviderUnavailable("INVALID_RESPONSE");
     // The provider also returns a per-instance token. Do not return or persist it.
   }
+  async configureWebhook(instanceName: string, url: string, token: string): Promise<void> {
+    this.validateInstance(instanceName);
+    const destination = new URL(url);
+    if (destination.protocol !== "https:" || destination.username || destination.password || destination.search || destination.hash || !/^[a-f0-9]{64}$/.test(token)) throw new MessagingProviderUnavailable("NOT_CONFIGURED");
+    const events = ["MESSAGES_UPSERT", "CONNECTION_UPDATE"];
+    await this.request(`/webhook/set/${encodeURIComponent(instanceName)}`, "POST", { webhook: { enabled: true, url, headers: { "x-bm-webhook-token": token }, byEvents: false, base64: false, events } });
+    const readback = await this.request(`/webhook/find/${encodeURIComponent(instanceName)}`);
+    try {
+      const result = z.object({ enabled: z.literal(true), url: z.literal(url), headers: z.object({ "x-bm-webhook-token": z.literal(token) }), webhookByEvents: z.literal(false), webhookBase64: z.literal(false), events: z.array(z.string()) }).parse(await readback.json());
+      if (result.events.length !== events.length || !events.every((event) => result.events.includes(event))) throw new Error();
+    } catch { throw new MessagingProviderUnavailable("INVALID_RESPONSE"); }
+    // Upstream readback contains the header secret. Return no provider payload.
+  }
   async requestPairing(instanceName: string): Promise<PairingResult> {
     this.validateInstance(instanceName);
     const state = await this.getConnectionState(instanceName);
@@ -65,7 +78,7 @@ export class EvolutionProvider implements PairingMessagingProvider {
     }
   }
 }
-export function configuredEvolutionProvider(): PairingMessagingProvider {
+export function configuredEvolutionProvider(): WebhookMessagingProvider {
   if (!process.env.EVOLUTION_API_URL || !process.env.EVOLUTION_API_KEY) throw new MessagingProviderUnavailable("NOT_CONFIGURED");
   return new EvolutionProvider(process.env.EVOLUTION_API_URL, process.env.EVOLUTION_API_KEY);
 }

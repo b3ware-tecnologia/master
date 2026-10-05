@@ -4,13 +4,13 @@ Foundation for a multi-tenant relationship platform.
 
 ## Status
 
-Staging now includes Phases 2–5: customer import, relationship planning, messaging governance and tenant-scoped Evolution provisioning/QR pairing. Real WhatsApp pairing and message/webhook delivery acceptance remain pending.
+Staging now includes Phases 2–5: customer import, relationship planning, messaging governance and tenant-scoped Evolution provisioning/QR pairing. BM Crédito has a verified OPEN WhatsApp device connection. The conversation inbox and authenticated receiver are implemented; live delivery acceptance is tracked separately.
 
 Phases 0 and 1 and the initial Phase 2 customer import are merged into `master`. The repository default branch `main` still contains only the bootstrap README; use `master` for the application. The import mapping and resilience continuation is tracked in [PR #10](https://github.com/bmcredito/master/pull/10) and [PR #11](https://github.com/bmcredito/master/pull/11). Phase 3 adds the relationship planner on top of that continuation; see [its acceptance evidence](docs/architecture/phase-3-relationship-planner.md).
 
 See [the continuation evidence](docs/architecture/phase-2-continuation-2026-10-05.md) for current validation and remaining release gates.
 
-The continuation implements [messaging governance](docs/architecture/phase-4-messaging-governance.md) and the [Evolution connector](docs/integrations/evolution-api.md). The cumulative Phase 5 branch is deployed to Railway staging while the original repository PRs remain under review. Evolution provisioning and QR generation passed authenticated live staging acceptance; no real device has been paired or message sent. Provider delivery and AI integration remain subsequent work.
+The continuation implements [messaging governance](docs/architecture/phase-4-messaging-governance.md) and the [Evolution connector](docs/integrations/evolution-api.md). The cumulative Phase 5 branch is deployed to Railway staging while the original repository PRs remain under review. Evolution provisioning and QR generation passed authenticated live staging acceptance; BM Crédito has now paired its real device. The [conversation inbox](docs/architecture/phase-5-conversations.md) adds authenticated webhooks and durable history. Real message delivery and AI integration have separate acceptance gates.
 
 ## Stack
 

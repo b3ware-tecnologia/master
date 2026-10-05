@@ -27,6 +27,10 @@
     "harness:evolution": "node scripts/evolution-healthcheck.mjs",
     "harness:phase5:http": "tsx scripts/phase-5-http-acceptance.ts",
     "bootstrap:bm:staging": "tsx scripts/bootstrap-bm-staging.ts",
+    "webhook:bm:staging": "tsx scripts/enable-bm-webhook.ts",
+    "harness:phase5inbox": "tsx scripts/phase-5-inbox-acceptance.ts",
+    "harness:phase5inbox:staging": "node scripts/phase-2-staging.mjs phase5inbox",
+    "harness:phase5inbox:http": "tsx scripts/phase-5-inbox-http-acceptance.ts",
     "seed": "tsx prisma/seed.ts",
     "prisma": "prisma"
   },
