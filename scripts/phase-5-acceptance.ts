@@ -1,0 +1,43 @@
+import { randomUUID } from "node:crypto";
+import assert from "node:assert/strict";
+import { db } from "@/lib/db";
+import { roleCapabilities, type AuthorizationContext } from "@/domain/access";
+import { AuthorizationError, ConflictError } from "@/domain/errors";
+import { MessagingProviderUnavailable } from "@/domain/messaging-provider";
+import { registerEvolutionConnection, getMessagingConnection, checkMessagingConnection } from "@/services/messaging-connection-service";
+import { assertTestHooksAllowed } from "@/services/test-hooks";
+
+async function main() {
+  assertTestHooksAllowed(true);
+  const schema = process.env.ACCEPTANCE_ISOLATED_SCHEMA;
+  assert(schema && /^phase5_acceptance_[a-f0-9]{32}$/.test(schema));
+  assert.equal(new URL(process.env.DATABASE_URL!).searchParams.get("schema"), schema);
+  const suffix = randomUUID();
+  const tenant = await db.tenant.create({ data: { name: "Synthetic Connector", slug: `connector-${suffix}` } });
+  const foreign = await db.tenant.create({ data: { name: "Foreign Connector", slug: `foreign-${suffix}` } });
+  const admin = await db.user.create({ data: { name: "Synthetic Platform", email: `platform-${suffix}@example.invalid`, status: "ACTIVE" } });
+  await db.membership.create({ data: { tenantId: tenant.id, userId: admin.id, role: "PLATFORM_ADMIN", status: "ACTIVE" } });
+  const master = await db.user.create({ data: { name: "Synthetic Master", email: `master-${suffix}@example.invalid`, status: "ACTIVE" } });
+  const membership = await db.membership.create({ data: { tenantId: tenant.id, userId: master.id, role: "TENANT_MASTER", status: "ACTIVE" } });
+  const context: AuthorizationContext = { tenantId: tenant.id, userId: master.id, membershipId: membership.id, role: "TENANT_MASTER", accessScope: "TENANT", capabilities: roleCapabilities.TENANT_MASTER };
+  const input = { tenantId: tenant.id, instanceName: "synthetic_bm_connector" };
+  await assert.rejects(registerEvolutionConnection(master.id, input), AuthorizationError);
+  const connections = await Promise.all([registerEvolutionConnection(admin.id, input), registerEvolutionConnection(admin.id, input)]);
+  assert.equal(connections[0].id, connections[1].id);
+  assert.equal(await db.messagingConnection.count(), 1);
+  assert.equal(await db.auditEvent.count({ where: { action: "MESSAGING_CONNECTION_REGISTERED" } }), 1);
+  await assert.rejects(registerEvolutionConnection(admin.id, { tenantId: foreign.id, instanceName: input.instanceName }), ConflictError);
+  assert.equal(await getMessagingConnection({ ...context, tenantId: foreign.id }), null);
+  const seen: string[] = [];
+  const open = await checkMessagingConnection(context, { name: "ACCEPTANCE_STUB", getConnectionState: async (instance) => { seen.push(instance); return "OPEN"; } });
+  assert.equal(open.lastState, "OPEN"); assert.equal(open.lastErrorCode, null); assert(open.lastCheckedAt);
+  assert.deepEqual(seen, [input.instanceName]);
+  const unavailable = await checkMessagingConnection(context, { name: "ACCEPTANCE_STUB", getConnectionState: async () => { throw new MessagingProviderUnavailable("NOT_CONFIGURED"); } });
+  assert.equal(unavailable.lastState, "ERROR"); assert.equal(unavailable.lastErrorCode, "NOT_CONFIGURED");
+  await assert.rejects(checkMessagingConnection({ ...context, role: "CONSULTANT", capabilities: roleCapabilities.CONSULTANT }), AuthorizationError);
+  await db.user.update({ where: { id: admin.id }, data: { status: "DISABLED" } });
+  await assert.rejects(registerEvolutionConnection(admin.id, { tenantId: foreign.id, instanceName: "foreign_bm" }), AuthorizationError);
+  console.log(`PHASE_5_CONNECTOR_PREPARATION_JSON=${JSON.stringify({ connectionId: open.id, concurrentRegistrations: 2, registrationAudits: 1, exclusiveInstanceBinding: true, masterProvisioningDenied: true, foreignReadEmpty: true, consultantDenied: true, disabledPlatformAdminDenied: true, missingConfigurationBlocked: true, provider: "ACCEPTANCE_STUB", liveEvolutionTested: false, sentMessages: 0 })}`);
+  await db.$disconnect();
+}
+void main().catch(async (error: unknown) => { console.error(error); await db.$disconnect(); process.exitCode = 1; });

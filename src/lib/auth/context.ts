@@ -26,7 +26,7 @@ export async function requirePlatformAdmin() {
   const token = (await cookies()).get(sessionCookieName)?.value;
   if (!token) throw new AuthenticationError("Authentication required");
   const session = await db.session.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: { include: { memberships: true } } } });
-  if (!session || session.expiresAt <= new Date() || !session.user.memberships.some((item) => item.role === "PLATFORM_ADMIN" && item.status === "ACTIVE")) throw new AuthorizationError("Access denied");
+  if (!session || session.expiresAt <= new Date() || session.user.status !== "ACTIVE" || !session.user.memberships.some((item) => item.role === "PLATFORM_ADMIN" && item.status === "ACTIVE")) throw new AuthorizationError("Access denied");
   return session.userId;
 }
 

@@ -1,0 +1,16 @@
+"use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+export function RegisterMessagingConnection({ tenants }: { tenants: { id: string; name: string }[] }) {
+  const router = useRouter(); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  async function submit(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); setBusy(true); setError(""); try { const response = await fetch("/api/platform/messaging-connections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenantId: form.get("tenantId"), instanceName: form.get("instanceName") }) }); const result = await response.json(); if (!response.ok) setError(result.error ?? "Não foi possível registrar a instância."); else router.refresh(); } catch { setError("Falha de conexão. Tente novamente."); } finally { setBusy(false); } }
+  return <form className="form" onSubmit={submit}><label>Empresa<select name="tenantId" required disabled={busy}><option value="">Selecione</option>{tenants.map((tenant) => <option value={tenant.id} key={tenant.id}>{tenant.name}</option>)}</select></label><label>Nome da instância existente<input name="instanceName" required pattern="[A-Za-z0-9_-]{1,80}" maxLength={80} disabled={busy} /></label><button disabled={busy || tenants.length === 0}>Vincular instância</button>{error && <p className="error" role="alert">{error}</p>}</form>;
+}
+type Connection = { instanceName: string; lastState: string; lastErrorCode: string | null; lastCheckedAt: Date | string | null };
+const states: Record<string, string> = { OPEN: "Conectada", CONNECTING: "Conectando", CLOSED: "Desconectada", UNCHECKED: "Ainda não verificada", DISABLED: "Desabilitada", ERROR: "Verificação indisponível" };
+export function MessagingConnectionStatus({ initial }: { initial: Connection | null }) {
+  const [connection, setConnection] = useState(initial); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  async function check() { setBusy(true); setError(""); try { const response = await fetch("/api/messaging-connection", { method: "POST" }); const result = await response.json(); if (!response.ok) setError(result.error ?? "Não foi possível verificar a conexão."); else setConnection(result); } catch { setError("Falha de conexão. Tente novamente."); } finally { setBusy(false); } }
+  return <section className="card"><h2>Conexão WhatsApp</h2>{connection ? <><p>Instância: {connection.instanceName} · {states[connection.lastState] ?? "Estado desconhecido"}</p>{connection.lastCheckedAt && <p>Última verificação: {new Date(connection.lastCheckedAt).toLocaleString("pt-BR")}</p>}{connection.lastErrorCode === "NOT_CONFIGURED" && <p>A configuração segura do provedor está pendente.</p>}<button disabled={busy} onClick={check}>{busy ? "Verificando…" : "Verificar conexão"}</button></> : <p>Nenhuma instância vinculada. O administrador da plataforma deve registrar a instância desta empresa.</p>}{error && <p className="error" role="alert">{error}</p>}<p>Esta etapa verifica a conexão. Os planos continuam sujeitos à aprovação e à governança.</p></section>;
+}

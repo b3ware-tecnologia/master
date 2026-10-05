@@ -10,6 +10,8 @@ Phases 0 and 1 and the initial Phase 2 customer import are merged into `master`.
 
 See [the continuation evidence](docs/architecture/phase-2-continuation-2026-10-05.md) for current validation and remaining release gates.
 
+The continuation also implements [messaging governance](docs/architecture/phase-4-messaging-governance.md) and prepares the [Evolution connector](docs/integrations/evolution-api.md). These phases are under review; live provider delivery and AI integration await their configuration and acceptance.
+
 ## Stack
 
 - Next.js / React / TypeScript
