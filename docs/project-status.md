@@ -27,3 +27,7 @@ O fluxo da arquitetura tem mecanismos implementados: importação → Customer 3
 Extensões de produto ainda sem mecanismo: aceite autenticado para ingresso de uma conta existente em outra empresa; transporte de e-mail; mídia/OCR/transcrição com IA; recibos/edição/exclusão de mensagens; exportação/portabilidade; alertas de retornos; relatórios comerciais; e integrações financeiras. Esses itens não devem ser apresentados como concluídos.
 
 As fases 0–10 têm documentos históricos em `docs/architecture`. O comportamento mais recente está em [operações e anexos](architecture/phase-11-12-operations-media.md). Homologação com dados fictícios não comprova que produção ou um atendimento real estão prontos.
+
+## Última entrega verificada
+
+Fases 11–12 publicadas em WEB/WORKER com status terminal `SUCCESS` e código `0c7499d`. Passaram 80 testes locais, build/lint/TypeScript, aceitação isolada de operações/anexos e regressões, além da aceitação autenticada publicada com importação processada pelo worker. A conexão BM Crédito permaneceu aberta. IA e envio real continuam desativados. O [PR #14](https://github.com/bmcredito/master/pull/14) segue em draft, sem checks GitHub reportados. IDs de deployment e os limites de cada prova constam no documento das fases.
