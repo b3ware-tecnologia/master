@@ -20,6 +20,10 @@ describe("Evolution webhook boundary", () => {
   it("handles phone aliases for LID and mirrors outbound phone messages without auto-sending", () => {
     expect(normalizeEvolutionWebhook(envelope({ ...data, key: { ...data.key, remoteJid: "123456789@lid", remoteJidAlt: data.key.remoteJid, fromMe: true } }))).toMatchObject({ messages: [{ remoteJid: data.key.remoteJid, direction: "OUTBOUND", displayName: null }] });
   });
+  it("observes API SEND_MESSAGE events only when the message is outbound", () => {
+    expect(normalizeEvolutionWebhook({ ...envelope(), event: "SEND_MESSAGE", data: { ...data, key: { ...data.key, fromMe: true } } })).toMatchObject({ messages: [{ direction: "OUTBOUND", text: "Texto de teste" }] });
+    expect(() => normalizeEvolutionWebhook({ ...envelope(), event: "send.message" })).toThrow("Invalid webhook");
+  });
   it("excludes groups, status broadcasts, history events and protocol-only messages", () => {
     for (const jid of ["12345@g.us", "status@broadcast", "123@newsletter"]) expect(normalizeEvolutionWebhook(envelope({ ...data, key: { ...data.key, remoteJid: jid } }))).toMatchObject({ messages: [] });
     expect(normalizeEvolutionWebhook({ ...envelope(), event: "messages.set" })).toMatchObject({ type: "ignored" });

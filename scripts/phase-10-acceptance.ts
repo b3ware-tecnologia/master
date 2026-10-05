@@ -6,6 +6,8 @@ import { outboundPreview, requestOutbound, processOutboundBatch, cancelOutbound,
 import { changePlan } from "@/services/relationship-plan-service";
 import { saveCommunicationPreference, saveMessagingPolicy } from "@/services/messaging-governance";
 import { MessagingProviderUnavailable } from "@/domain/messaging-provider";
+import { connectionWebhookToken } from "@/integrations/evolution-webhook";
+import { receiveEvolutionWebhook } from "@/services/conversation-service";
 
 async function main() {
   const schema = process.env.ACCEPTANCE_ISOLATED_SCHEMA;
@@ -79,7 +81,11 @@ async function main() {
   const conversation = await db.conversation.create({ data: { tenantId: tenant.id, connectionId: connection.id, remoteJid: `${uncertain.phone.normalizedValue}@s.whatsapp.net`, lastMessageAt: new Date() } });
   const wrong = await db.conversationMessage.create({ data: { tenantId: tenant.id, connectionId: connection.id, conversationId: conversation.id, providerMessageId: "wrong-observation", direction: "OUTBOUND", kind: "TEXT", text: "Wrong text", occurredAt: new Date() } });
   await assert.rejects(reconcileOutbound(actor, attempt.id, stored.version, wrong.id));
-  const observed = await db.conversationMessage.create({ data: { tenantId: tenant.id, connectionId: connection.id, conversationId: conversation.id, providerMessageId: "observed-uncertain", direction: "OUTBOUND", kind: "TEXT", text: uncertain.plan.message, occurredAt: new Date() } });
+  const envelope = { event: "send.message", instance: connection.instanceName, data: { key: { id: "observed-uncertain", remoteJid: conversation.remoteJid, fromMe: true }, message: { conversation: uncertain.plan.message }, messageTimestamp: Math.floor(Date.now() / 1000) } };
+  const observedResults = await Promise.all([receiveEvolutionWebhook(connection.id, connectionWebhookToken(connection.id), envelope), receiveEvolutionWebhook(connection.id, connectionWebhookToken(connection.id), { ...envelope, event: "messages.upsert" })]);
+  assert.equal(observedResults.reduce((sum, result) => sum + result.accepted, 0), 1); assert.equal(observedResults.reduce((sum, result) => sum + result.duplicates, 0), 1);
+  const observed = await db.conversationMessage.findUniqueOrThrow({ where: { connectionId_providerMessageId: { connectionId: connection.id, providerMessageId: "observed-uncertain" } } });
+  assert((await db.customer.findUniqueOrThrow({ where: { id: uncertain.customer.id } })).lastOutboundAt);
   assert.equal((await outboundDetail(actor, attempt.id)).candidates.length, 1);
   await assert.rejects(reconcileOutbound(actor, attempt.id, 999, observed.id));
   await reconcileOutbound(actor, attempt.id, stored.version, observed.id); assert.equal(calls, afterFailure); stored = await db.outboundDispatch.findUniqueOrThrow({ where: { id: attempt.id } }); assert.equal(stored.status, "ACCEPTED");

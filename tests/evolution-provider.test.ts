@@ -6,7 +6,7 @@ describe("Evolution connection adapter", () => {
   it("configures only selected instance events with a header secret and verifies the readback", async () => {
     const url = "https://crm.example.invalid/api/webhooks/evolution/binding";
     const token = "a".repeat(64);
-    const response = { enabled: true, url, headers: { "x-bm-webhook-token": token }, webhookByEvents: false, webhookBase64: false, events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE"] };
+    const response = { enabled: true, url, headers: { "x-bm-webhook-token": token }, webhookByEvents: false, webhookBase64: false, events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "SEND_MESSAGE"] };
     const transport = vi.fn().mockResolvedValueOnce(Response.json(response, { status: 201 })).mockResolvedValueOnce(Response.json(response));
     expect(await new EvolutionProvider("https://provider.example.invalid", "key", transport).configureWebhook("bm_test", url, token)).toBeUndefined();
     expect(transport.mock.calls[0][0]).toBe("https://provider.example.invalid/webhook/set/bm_test");

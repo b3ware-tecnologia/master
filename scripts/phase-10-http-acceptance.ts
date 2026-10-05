@@ -3,11 +3,12 @@ import { randomUUID } from "node:crypto";
 import type { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { createOpaqueToken, hashPassword } from "@/lib/auth/crypto";
+import { connectionWebhookToken } from "@/integrations/evolution-webhook";
 const suffix = randomUUID().replaceAll("-", ""); const tenants: string[] = []; const users: string[] = [];
 const password = createOpaqueToken();
-async function request(path: string, cookie?: string, method = "GET", body?: unknown) {
+async function request(path: string, cookie?: string, method = "GET", body?: unknown, extraHeaders: Record<string, string> = {}) {
   const url = new URL(`${process.env.APP_URL}${path}`); const tenantId = url.searchParams.get("tenantId");
-  return fetch(url, { method, redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(30_000), headers: { "Content-Type": "application/json", ...(tenantId ? { "x-tenant-id": tenantId } : {}), ...(cookie ? { cookie } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  return fetch(url, { method, redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(30_000), headers: { "Content-Type": "application/json", ...(tenantId ? { "x-tenant-id": tenantId } : {}), ...(cookie ? { cookie } : {}), ...extraHeaders }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
 async function member(tenantId: string, role: Role) {
   const user = await db.user.create({ data: { name: "Synthetic outbound HTTP", email: `${randomUUID()}-${suffix}@example.invalid`, status: "ACTIVE", passwordHash: await hashPassword(password) } }); users.push(user.id);
@@ -24,7 +25,7 @@ async function main() {
     const [master, manager, consultant, other, admin] = await Promise.all([member(tenant.id, "TENANT_MASTER"), member(tenant.id, "TENANT_MANAGER"), member(tenant.id, "CONSULTANT"), member(foreign.id, "TENANT_MASTER"), member(tenant.id, "PLATFORM_ADMIN")]);
     const customer = await db.customer.create({ data: { tenantId: tenant.id, fullName: "Private synthetic HTTP client", displayName: "Private synthetic HTTP client" } });
     const phone = await db.customerIdentifier.create({ data: { tenantId: tenant.id, customerId: customer.id, type: "PHONE", normalizedValue: "15555550101", verification: "CONFIRMED" } });
-    await db.messagingConnection.create({ data: { tenantId: tenant.id, instanceName: `synthetic_http_${suffix}` } }); // Database fixture only; never creates an Evolution instance.
+    const connection = await db.messagingConnection.create({ data: { tenantId: tenant.id, instanceName: `synthetic_http_${suffix}` } }); // Database fixture only; never creates an Evolution instance.
     const base = "/api/outbound"; const query = `?tenantId=${tenant.id}`;
     assert.equal((await request(base)).status, 401);
     for (const account of [manager, consultant]) {
@@ -53,14 +54,23 @@ async function main() {
     assert.equal((await request(`/api/platform/outbound/preview${query}&planId=${plan.id}`, admin.cookie)).status, 200);
     assert.equal((await request(`/app/whatsapp-outbox`, master.cookie)).status, 200);
     assert.equal((await request(`/platform/whatsapp-outbox${query}`, admin.cookie)).status, 200);
+    const callbackPath = `/api/webhooks/evolution/${connection.id}`;
+    const callback = { event: "send.message", instance: connection.instanceName, data: { key: { id: `synthetic-send-${suffix}`, remoteJid: `${phone.normalizedValue}@s.whatsapp.net`, fromMe: true }, message: { conversation: input.message }, messageTimestamp: Math.floor(Date.now() / 1000) } };
+    assert.equal((await request(callbackPath, undefined, "POST", callback)).status, 401);
+    const callbackHeaders = { "x-bm-webhook-token": connectionWebhookToken(connection.id) };
+    const observation = await request(callbackPath, undefined, "POST", callback, callbackHeaders); assert.equal(observation.status, 200); assert.equal((await observation.json()).accepted, 1);
+    const repeated = await request(callbackPath, undefined, "POST", { ...callback, event: "messages.upsert" }, callbackHeaders); assert.equal(repeated.status, 200); assert.equal((await repeated.json()).duplicates, 1);
+    assert.equal(await db.conversationMessage.count({ where: { tenantId: tenant.id } }), 1); assert((await db.customer.findUniqueOrThrow({ where: { id: customer.id } })).lastOutboundAt);
     await db.membership.update({ where: { id: master.membership.id }, data: { status: "SUSPENDED" } }); assert.equal((await request(`${base}${query}`, master.cookie)).status, 403);
     assert.equal(await db.outboundDispatch.count({ where: { tenantId: { in: tenants } } }), 0);
     for (const records of [await db.auditEvent.findMany({ where: { tenantId: tenant.id } }), await db.outboxEvent.findMany({ where: { tenantId: tenant.id } })]) assert(!JSON.stringify(records).includes(input.message));
-    console.log(JSON.stringify({ result: "PASS", phase: 10, deployedHttp: true, rolesTenantAndRevocation: true, privateReview: true, disabledSendRejected: true, dispatchesCreated: 0, realProviderCalls: 0, actualMessagesSent: 0 }));
+    console.log(JSON.stringify({ result: "PASS", phase: 10, deployedHttp: true, rolesTenantAndRevocation: true, privateReview: true, disabledSendRejected: true, syntheticSendCallbackAndDedup: true, dispatchesCreated: 0, realProviderCalls: 0, actualMessagesSent: 0 }));
   } finally {
     await db.$transaction(async (transaction) => {
       assert.equal(await transaction.tenant.count({ where: { id: { in: tenants }, slug: { endsWith: suffix } } }), tenants.length);
       await transaction.outboundDispatch.deleteMany({ where: { tenantId: { in: tenants } } });
+      await transaction.conversationMessage.deleteMany({ where: { tenantId: { in: tenants } } });
+      await transaction.conversation.deleteMany({ where: { tenantId: { in: tenants } } });
       await transaction.messagingGovernanceCheck.deleteMany({ where: { tenantId: { in: tenants } } });
       await transaction.relationshipPlan.deleteMany({ where: { tenantId: { in: tenants } } });
       await transaction.communicationPreference.deleteMany({ where: { tenantId: { in: tenants } } });

@@ -87,7 +87,7 @@ export function normalizeEvolutionWebhook(value: unknown, now = new Date()): Nor
     if (!Number.isFinite(occurredAt.valueOf()) || occurredAt.valueOf() > now.valueOf() + 300_000) invalid();
     return { ...base, type: "connection", state: state.data.state === "open" ? "OPEN" : state.data.state === "close" ? "CLOSED" : "CONNECTING", occurredAt };
   }
-  if (event !== "messages.upsert") return { ...base, type: "ignored" };
+  if (event !== "messages.upsert" && event !== "send.message") return { ...base, type: "ignored" };
   const data = Array.isArray(envelope.data) ? envelope.data : [envelope.data];
   if (data.length > 50) invalid();
   const messages: NormalizedWebhookMessage[] = [];
@@ -95,6 +95,7 @@ export function normalizeEvolutionWebhook(value: unknown, now = new Date()): Nor
     const result = messageSchema.safeParse(raw);
     if (!result.success) invalid();
     const item = result.data;
+    if (event === "send.message" && !item.key.fromMe) invalid();
     const remoteJid = item.key.remoteJid.endsWith("@lid") && /^\d{8,15}@s\.whatsapp\.net$/.test(item.key.remoteJidAlt ?? "") ? item.key.remoteJidAlt! : item.key.remoteJid;
     if (!/^\d{8,15}@s\.whatsapp\.net$/.test(remoteJid) && !/^\d{5,20}@lid$/.test(remoteJid)) continue;
     const occurredAt = new Date(Number(item.messageTimestamp) * 1000);

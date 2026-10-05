@@ -12,6 +12,8 @@ O worker registra uma reivindicação durável antes de consultar o provedor. An
 
 Há um limite inicial de vinte solicitações por empresa/hora e lotes de cinco. `QUEUED` pode ser cancelado com versão esperada. `SENDING` não pode ser cancelado. `ACCEPTED` significa aceite do provedor, não entrega/leitura. O aceite reserva o intervalo entre contatos; o estado de relacionamento e `lastOutboundAt` só mudam com mensagem efetivamente observada pela integração existente.
 
+O webhook passa a assinar `SEND_MESSAGE` junto de `MESSAGES_UPSERT` e `CONNECTION_UPDATE`. Na versão 2.3.7, a Evolution emite `send.message` para envios via API. O normalizador exige `fromMe=true` nesse evento e utiliza o mesmo armazenamento/idempotência de mensagens. Caso os dois eventos cheguem para o mesmo ID do provedor, somente uma mensagem e um contato observado são registrados. A inscrição de instâncias existentes precisa ser atualizada com a ação de configurar webhook.
+
 ## Resultado incerto
 
 Evolution 2.3.7 não expõe uma chave de idempotência no DTO de envio. O adaptador faz um único POST `/message/sendText/{instance}` com número/texto, sem retry. Qualquer falha após o início desse POST, inclusive resposta inválida, torna a tentativa `UNCERTAIN`; uma reivindicação abandonada por mais de dois minutos também se torna incerta. Não há retry/reset automático nem garantia de entrega exatamente uma vez.
