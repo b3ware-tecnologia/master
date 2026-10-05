@@ -17,6 +17,8 @@ async function main() {
   const user = await db.user.create({ data: { name: "Synthetic Planner", email: `${suffix}@example.invalid`, status: "ACTIVE" } });
   const membership = await db.membership.create({ data: { tenantId: tenant.id, userId: user.id, role: "TENANT_MASTER", status: "ACTIVE" } });
   const context: AuthorizationContext = { tenantId: tenant.id, userId: user.id, membershipId: membership.id, role: "TENANT_MASTER", accessScope: "TENANT", capabilities: roleCapabilities.TENANT_MASTER };
+  const foreignMembership = await db.membership.create({ data: { tenantId: foreign.id, userId: user.id, role: "TENANT_MASTER", status: "ACTIVE" } });
+  const foreignContext = { ...context, tenantId: foreign.id, membershipId: foreignMembership.id };
   const customer = await db.customer.create({ data: { tenantId: tenant.id, displayName: "Synthetic Customer", fullName: "Synthetic Customer" } });
   const input = { customerId: customer.id, requestKey: randomUUID(), purpose: "Revisar necessidade", message: "Olá, gostaria de agendar uma conversa?", channel: "WHATSAPP" as const, scheduledAt: new Date(Date.now() + 3600_000).toISOString() };
   const [first, second] = await Promise.all([createPlan(context, input), createPlan(context, input)]);
@@ -25,9 +27,10 @@ async function main() {
   assert.equal(await db.auditEvent.count({ where: { entityId: first.id, action: "RELATIONSHIP_PLAN_CREATED" } }), 1);
   await assert.rejects(createPlan(context, { ...input, purpose: "Changed" }), ConflictError);
   console.log(`PASS PLAN_IDEMPOTENCY ${JSON.stringify({ planId: first.id, count: 1, creationAudits: 1 })}`);
-  await assert.rejects(createPlan({ ...context, tenantId: foreign.id }, { ...input, requestKey: randomUUID() }), NotFoundError);
-  assert.equal((await listPlans({ ...context, tenantId: foreign.id })).length, 0);
-  await assert.rejects(changePlan({ ...context, tenantId: foreign.id }, first.id, "approve"), NotFoundError);
+  await assert.rejects(createPlan({ ...context, tenantId: foreign.id }, { ...input, requestKey: randomUUID() }), AuthorizationError);
+  await assert.rejects(createPlan(foreignContext, { ...input, requestKey: randomUUID() }), NotFoundError);
+  assert.equal((await listPlans(foreignContext)).length, 0);
+  await assert.rejects(changePlan(foreignContext, first.id, "approve"), NotFoundError);
   await assert.rejects(changePlan({ ...context, role: "CONSULTANT", capabilities: roleCapabilities.CONSULTANT }, first.id, "approve"), AuthorizationError);
   console.log("PASS PLAN_TENANT_ISOLATION_AND_RBAC");
   const approvals = await Promise.all([changePlan(context, first.id, "approve"), changePlan(context, first.id, "approve")]);

@@ -3,8 +3,10 @@ import { ZodError } from "zod";
 import { AuthenticationError, AuthorizationError, ConflictError, NotFoundError } from "@/domain/errors";
 import { MessagingProviderUnavailable } from "@/domain/messaging-provider";
 import { AIUnavailable } from "@/domain/conversation-ai";
+import { OutboundDisabled } from "@/domain/outbound";
 
 export function apiError(error: unknown) {
+  if (error instanceof OutboundDisabled) return NextResponse.json({ error: error.message, code: "OUTBOUND_DISABLED" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   if (error instanceof AIUnavailable) return NextResponse.json({ error: "IA indisponível. Configure a integração ou tente novamente.", code: error.code }, { status: 503, headers: { "Cache-Control": "no-store" } });
   if (error instanceof AuthenticationError) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   if (error instanceof AuthorizationError) return NextResponse.json({ error: "Access denied" }, { status: 403 });

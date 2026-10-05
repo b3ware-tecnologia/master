@@ -39,7 +39,11 @@
     "harness:phase79:http": "tsx scripts/phase-7-9-http-acceptance.ts",
     "bootstrap:crm-demo:staging": "tsx scripts/bootstrap-crm-demo-staging.ts",
     "seed": "tsx prisma/seed.ts",
-    "prisma": "prisma"
+    "prisma": "prisma",
+    "harness:phase10": "tsx scripts/phase-10-acceptance.ts",
+    "harness:phase10:staging": "node scripts/phase-2-staging.mjs phase10",
+    "harness:phase10:http": "tsx scripts/phase-10-http-acceptance.ts",
+    "bootstrap:outbound-demo:staging": "tsx scripts/bootstrap-outbound-demo-staging.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.16.2",

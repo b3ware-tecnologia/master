@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { MessagingProviderUnavailable, type ConnectionState, type WebhookMessagingProvider, type PairingResult } from "@/domain/messaging-provider";
+import { MessagingProviderUnavailable, type ConnectionState, type WebhookMessagingProvider, type SendingMessagingProvider, type PairingResult } from "@/domain/messaging-provider";
 
 export const evolutionContractVersion = "2.3.7";
 const responseSchema = z.object({ instance: z.object({ instanceName: z.string(), state: z.enum(["open", "connecting", "close"]) }) });
 const createdSchema = z.object({ instance: z.object({ instanceName: z.string(), integration: z.literal("WHATSAPP-BAILEYS") }) });
 const qrSchema = z.string().max(200_000).regex(/^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/);
-export class EvolutionProvider implements WebhookMessagingProvider {
+export class EvolutionProvider implements WebhookMessagingProvider, SendingMessagingProvider {
   readonly name = "EVOLUTION";
   constructor(private readonly baseUrl: string, private readonly apiKey: string, private readonly transport: typeof fetch = fetch) {
     let url: URL;
@@ -30,6 +30,16 @@ export class EvolutionProvider implements WebhookMessagingProvider {
     try { parsed = responseSchema.parse(await response.json()); } catch { throw new MessagingProviderUnavailable("INVALID_RESPONSE"); }
     if (parsed.instance.instanceName !== instanceName) throw new MessagingProviderUnavailable("INVALID_RESPONSE");
     return parsed.instance.state === "open" ? "OPEN" : parsed.instance.state === "close" ? "CLOSED" : "CONNECTING";
+  }
+  async sendText(instanceName: string, recipient: string, text: string) {
+    this.validateInstance(instanceName);
+    if (!/^[1-9]\d{9,14}$/.test(recipient) || !text.trim() || text.length > 4000) throw new MessagingProviderUnavailable("INVALID_RESPONSE");
+    const response = await this.request(`/message/sendText/${encodeURIComponent(instanceName)}`, "POST", { number: recipient, text, linkPreview: false });
+    try {
+      const result = z.object({ key: z.object({ id: z.string().min(1).max(128), fromMe: z.literal(true), remoteJid: z.literal(`${recipient}@s.whatsapp.net`) }) }).parse(await response.json());
+      return { providerMessageId: result.key.id, remoteJid: result.key.remoteJid };
+    } catch { throw new MessagingProviderUnavailable("INVALID_RESPONSE"); }
+    // A timeout, HTTP error or malformed response may follow an accepted send. Never retry here.
   }
   async ensureInstance(instanceName: string): Promise<void> {
     this.validateInstance(instanceName);
@@ -78,7 +88,7 @@ export class EvolutionProvider implements WebhookMessagingProvider {
     }
   }
 }
-export function configuredEvolutionProvider(): WebhookMessagingProvider {
+export function configuredEvolutionProvider(): WebhookMessagingProvider & SendingMessagingProvider {
   if (!process.env.EVOLUTION_API_URL || !process.env.EVOLUTION_API_KEY) throw new MessagingProviderUnavailable("NOT_CONFIGURED");
   return new EvolutionProvider(process.env.EVOLUTION_API_URL, process.env.EVOLUTION_API_KEY);
 }

@@ -12,6 +12,7 @@ import { recordObservedContact } from "@/services/observed-contact";
 import { createOpaqueToken, hashToken } from "@/lib/auth/crypto";
 
 export type CRMActor = ConversationActor;
+export { authorize as authorizeCRMActor };
 function actorId(actor: CRMActor) { return "context" in actor ? actor.context.userId : actor.platformUserId; }
 function hash(input: unknown) { return createHash("sha256").update(JSON.stringify(input)).digest("hex"); }
 async function authorize(transaction: Prisma.TransactionClient, actor: CRMActor, capability: Capability) {

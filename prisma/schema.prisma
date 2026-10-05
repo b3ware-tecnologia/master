@@ -149,6 +149,7 @@ enum MatchLevel {
 }
 
 model Tenant {
+  outboundDispatches       OutboundDispatch[]
   crmCases                 CRMCase[]
   crmNotes                 CRMNote[]
   customerAssignments      CustomerAssignment[]
@@ -191,6 +192,7 @@ model Tenant {
 }
 
 model User {
+  outboundDispatches       OutboundDispatch[]         @relation("OutboundRequester")
   createdCases             CRMCase[]                  @relation("CRMCaseCreator")
   crmNotes                 CRMNote[]                  @relation("CRMNoteActor")
   distributedCustomers     CustomerAssignment[]       @relation("DistributionActor")
@@ -217,6 +219,7 @@ model User {
 }
 
 model Membership {
+  outboundDispatches  OutboundDispatch[]
   customerAssignments CustomerAssignment[]
   id                  String               @id @default(cuid())
   tenantId            String
@@ -337,6 +340,7 @@ model OutboxEvent {
 }
 
 model Customer {
+  outboundDispatches       OutboundDispatch[]
   crmCases                 CRMCase[]
   assignment               CustomerAssignment?
   conversations            Conversation[]
@@ -387,6 +391,7 @@ enum CommunicationChannel {
 }
 
 model RelationshipPlan {
+  outboundDispatch OutboundDispatch?
   crmCases         CRMCase[]
   id               String                     @id @default(cuid())
   tenantId         String
@@ -470,6 +475,7 @@ model MessagingGovernanceCheck {
 }
 
 model MessagingConnection {
+  outboundDispatches  OutboundDispatch[]
   id                  String                @id @default(cuid())
   tenantId            String                @unique
   instanceName        String                @unique
@@ -681,20 +687,70 @@ model ConversationMessage {
 }
 
 model CustomerIdentifier {
-  id              String             @id @default(cuid())
-  tenantId        String
-  customerId      String
-  type            IdentifierType
-  normalizedValue String
-  displayValue    String?
-  verification    VerificationStatus @default(IMPORTED)
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer        Customer           @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  outboundDispatches OutboundDispatch[]
+  id                 String             @id @default(cuid())
+  tenantId           String
+  customerId         String
+  type               IdentifierType
+  normalizedValue    String
+  displayValue       String?
+  verification       VerificationStatus @default(IMPORTED)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer           Customer           @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@unique([tenantId, type, normalizedValue])
+  @@unique([id, tenantId])
   @@index([customerId, tenantId])
+}
+
+enum OutboundStatus {
+  QUEUED
+  SENDING
+  ACCEPTED
+  BLOCKED
+  UNCERTAIN
+  CANCELLED
+}
+
+model OutboundDispatch {
+  id                    String              @id @default(cuid())
+  tenantId              String
+  planId                String              @unique
+  customerId            String
+  connectionId          String
+  recipientIdentifierId String
+  requestedById         String
+  requestedMembershipId String?
+  requestKey            String
+  inputHash             String
+  snapshotHash          String
+  recipient             String
+  message               String              @db.Text
+  status                OutboundStatus      @default(QUEUED)
+  version               Int                 @default(0)
+  reasons               String[]
+  claimToken            String?
+  startedAt             DateTime?
+  acceptedAt            DateTime?
+  providerMessageId     String?
+  reconciledMessageId   String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  plan                  RelationshipPlan    @relation(fields: [planId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  customer              Customer            @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  connection            MessagingConnection @relation(fields: [connectionId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  recipientIdentifier   CustomerIdentifier  @relation(fields: [recipientIdentifierId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  requester             User                @relation("OutboundRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  requestedMembership   Membership?         @relation(fields: [requestedMembershipId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([tenantId, requestKey])
+  @@unique([planId, tenantId])
+  @@unique([connectionId, providerMessageId])
+  @@index([status, createdAt])
+  @@index([tenantId, customerId, status])
 }
 
 model CustomerFact {

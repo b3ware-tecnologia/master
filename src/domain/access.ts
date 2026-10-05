@@ -9,6 +9,7 @@ export const capabilities = [
   "tags.read", "tags.manage",
   "plans.read", "plans.manage", "plans.approve",
   "messaging.read", "messaging.manage",
+  "messaging.send",
   "crm.read", "crm.create", "crm.update", "distribution.manage",
 ] as const;
 

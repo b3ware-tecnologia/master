@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import { processOutboxBatch } from "@/services/outbox-service";
 import { processImportBatch } from "@/services/import-service";
 import { processAIBatch } from "@/services/conversation-ai-service";
+import { processOutboundBatch } from "@/services/outbound-service";
 
 export type WorkerDependencies = {
   checkDatabase: () => Promise<void>;
@@ -16,6 +17,7 @@ async function waitForShutdown() {
     await processOutboxBatch();
     await processImportBatch();
     await processAIBatch();
+    await processOutboundBatch();
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
 }

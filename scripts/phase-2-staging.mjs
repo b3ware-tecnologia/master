@@ -7,7 +7,7 @@ if (process.env.RAILWAY_ENVIRONMENT_NAME?.toLowerCase() !== "staging") {
   throw new Error("This runner requires the Railway staging environment");
 }
 const phase = process.argv[2] ?? "phase2";
-if (!["phase2", "phase3", "phase4", "phase5", "phase5inbox", "phase6", "phase79"].includes(phase)) throw new Error("Unknown acceptance phase");
+if (!["phase2", "phase3", "phase4", "phase5", "phase5inbox", "phase6", "phase79", "phase10"].includes(phase)) throw new Error("Unknown acceptance phase");
 const schema = `${phase}_acceptance_${randomUUID().replaceAll("-", "")}`;
 const url = new URL(process.env.DATABASE_URL);
 url.searchParams.set("schema", schema);

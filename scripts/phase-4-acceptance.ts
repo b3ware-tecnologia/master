@@ -44,7 +44,10 @@ async function main() {
   await db.customer.update({ where: { id: customer.id }, data: { lastOutboundAt: new Date() } });
   const cooldown = await checkPlanGovernance(context, plan.id); assert(cooldown.reasons.includes("CONTACT_COOLDOWN"));
   await assert.rejects(checkPlanGovernance({ ...context, tenantId: foreign.id }, plan.id), NotFoundError);
-  await assert.rejects(saveCommunicationPreference({ ...context, tenantId: foreign.id }, customer.id, { channel: "WHATSAPP", consent: "OPTED_IN", evidence: "Synthetic foreign change attempt" }), NotFoundError);
+  await assert.rejects(saveCommunicationPreference({ ...context, tenantId: foreign.id }, customer.id, { channel: "WHATSAPP", consent: "OPTED_IN", evidence: "Synthetic foreign change attempt" }), AuthorizationError);
+  const foreignUser = await db.user.create({ data: { name: "Foreign synthetic governance", email: `${suffix}-foreign@example.invalid`, status: "ACTIVE" } });
+  const foreignMembership = await db.membership.create({ data: { tenantId: foreign.id, userId: foreignUser.id, role: "TENANT_MASTER", status: "ACTIVE" } });
+  await assert.rejects(saveCommunicationPreference({ ...context, tenantId: foreign.id, userId: foreignUser.id, membershipId: foreignMembership.id }, customer.id, { channel: "WHATSAPP", consent: "OPTED_IN", evidence: "Synthetic foreign change attempt" }), NotFoundError);
   await assert.rejects(saveMessagingPolicy({ ...context, role: "CONSULTANT", capabilities: roleCapabilities.CONSULTANT }, { timeZone: "UTC", startHour: 0, endHour: 24, minIntervalMinutes: 0, enabledChannels: [] }), AuthorizationError);
   const checks = await db.messagingGovernanceCheck.count({ where: { tenantId: tenant.id, planId: plan.id } });
   const audits = await db.auditEvent.count({ where: { tenantId: tenant.id, action: "MESSAGING_GOVERNANCE_CHECKED" } });
