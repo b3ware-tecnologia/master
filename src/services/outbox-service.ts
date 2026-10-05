@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { assertTestHooksAllowed } from "@/services/test-hooks";
 
 type OutboxDatabase = Pick<typeof db, "outboxEvent">;
 type OutboxOptions = { eventId?: string; afterClaim?: (eventId: string) => Promise<void> };
@@ -7,6 +8,7 @@ type OutboxOptions = { eventId?: string; afterClaim?: (eventId: string) => Promi
 export type OutboxBatchResult = { selected: number; claimed: number; processed: number; claimConflicts: number };
 
 export async function processOutboxBatchDetailed(limit = 25, database: OutboxDatabase = db, options: OutboxOptions = {}): Promise<OutboxBatchResult> {
+  assertTestHooksAllowed(Boolean(options.afterClaim));
   const staleLock = new Date(Date.now() - Number(process.env.OUTBOX_STALE_TIMEOUT_MS ?? 300_000));
   const events = await database.outboxEvent.findMany({ where: { id: options.eventId, processedAt: null, OR: [{ lockedAt: null }, { lockedAt: { lt: staleLock } }] }, orderBy: { createdAt: "asc" }, take: limit });
   const result = { selected: events.length, claimed: 0, processed: 0, claimConflicts: 0 };

@@ -14,3 +14,9 @@ export async function checkRedisConnection() {
   await getRedis().ping();
 }
 
+export async function closeRedisConnection() {
+  const client = redisClient;
+  redisClient = undefined;
+  client?.disconnect();
+}
+

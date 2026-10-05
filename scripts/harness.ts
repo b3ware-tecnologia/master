@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { checkDatabaseConnection } from "@/lib/db";
+import { checkDatabaseConnection, db } from "@/lib/db";
 import { parseEnvironment } from "@/lib/env";
-import { checkRedisConnection } from "@/lib/redis";
+import { checkRedisConnection, closeRedisConnection } from "@/lib/redis";
 import { GET as health } from "@/app/health/route";
 import { GET as ready } from "@/app/ready/route";
 import { startWorker } from "@/workers";
@@ -46,7 +46,10 @@ async function main() {
   console.log("PASS: STAGING_HARNESS GIT ENV LINT TYPECHECK TESTS BUILD PRISMA DATABASE REDIS WORKER HEALTH READY");
 }
 
-void main().catch((error: unknown) => {
+void main().finally(async () => {
+  await closeRedisConnection();
+  await db.$disconnect();
+}).catch((error: unknown) => {
   console.error(error);
   process.exit(1);
 });

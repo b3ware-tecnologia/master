@@ -4,9 +4,11 @@ Foundation for a multi-tenant relationship platform.
 
 ## Status
 
-Phase 0 — Bootstrap foundation.
+Phase 2 — Customer domain, list import and Customer 360; release acceptance in progress.
 
-This phase establishes the application, infrastructure boundaries, observability, CI, database/Redis foundations, and deployment architecture. Business features are intentionally not implemented yet.
+Phases 0 and 1 and the initial Phase 2 customer import are merged into `master`. The repository default branch `main` still contains only the bootstrap README; use `master` for the application. The import mapping and resilience continuation is tracked in [PR #10](https://github.com/bmcredito/master/pull/10). Phase 3 has not started.
+
+See [the continuation evidence](docs/architecture/phase-2-continuation-2026-10-05.md) for current validation and remaining release gates.
 
 ## Stack
 
@@ -20,7 +22,7 @@ This phase establishes the application, infrastructure boundaries, observability
 ## Services
 
 - **WEB** — HTTP application and health/readiness endpoints.
-- **WORKER** — background-process foundation; no business jobs in Phase 0.
+- **WORKER** — asynchronous customer imports and persisted outbox processing.
 - **PostgreSQL** — system of record.
 - **Redis** — queue/runtime infrastructure.
 
@@ -45,6 +47,8 @@ pnpm harness
 ```
 
 `pnpm harness` is an infrastructure-aware release verification. It requires valid `DATABASE_URL`, `REDIS_URL` and `APP_URL`; run it in the Railway WEB service environment for production validation.
+
+`pnpm harness:phase2:staging` runs controlled import/outbox acceptance on a temporary PostgreSQL schema with all six migrations, then removes that schema. Run it inside the Railway staging network with `RAILWAY_ENVIRONMENT_NAME=staging`. The regular staging worker cannot see its synthetic jobs. `pnpm harness:phase2` is the internal child runner and requires the isolated schema provided by the staging runner. These service-level checks do not replace authenticated HTTP acceptance or process-crash tests.
 
 ## Architecture
 
