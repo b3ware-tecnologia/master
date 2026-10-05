@@ -24,6 +24,7 @@
     "harness:phase4:staging": "node scripts/phase-2-staging.mjs phase4",
     "harness:phase5": "tsx scripts/phase-5-acceptance.ts",
     "harness:phase5:staging": "node scripts/phase-2-staging.mjs phase5",
+    "harness:evolution": "node scripts/evolution-healthcheck.mjs",
     "seed": "tsx prisma/seed.ts",
     "prisma": "prisma"
   },
