@@ -4,13 +4,13 @@ Foundation for a multi-tenant relationship platform.
 
 ## Status
 
-Phase 2 — Customer domain, list import and Customer 360; release acceptance in progress.
+Staging now includes Phases 2–5: customer import, relationship planning, messaging governance and tenant-scoped Evolution provisioning/QR pairing. Real WhatsApp pairing and message/webhook delivery acceptance remain pending.
 
 Phases 0 and 1 and the initial Phase 2 customer import are merged into `master`. The repository default branch `main` still contains only the bootstrap README; use `master` for the application. The import mapping and resilience continuation is tracked in [PR #10](https://github.com/bmcredito/master/pull/10) and [PR #11](https://github.com/bmcredito/master/pull/11). Phase 3 adds the relationship planner on top of that continuation; see [its acceptance evidence](docs/architecture/phase-3-relationship-planner.md).
 
 See [the continuation evidence](docs/architecture/phase-2-continuation-2026-10-05.md) for current validation and remaining release gates.
 
-The continuation also implements [messaging governance](docs/architecture/phase-4-messaging-governance.md) and prepares the [Evolution connector](docs/integrations/evolution-api.md). These phases are under review; live provider delivery and AI integration await their configuration and acceptance.
+The continuation implements [messaging governance](docs/architecture/phase-4-messaging-governance.md) and the [Evolution connector](docs/integrations/evolution-api.md). The cumulative Phase 5 branch is deployed to Railway staging while the original repository PRs remain under review. Evolution provisioning and QR generation passed authenticated live staging acceptance; no real device has been paired or message sent. Provider delivery and AI integration remain subsequent work.
 
 ## Stack
 
@@ -27,6 +27,7 @@ The continuation also implements [messaging governance](docs/architecture/phase-
 - **WORKER** — asynchronous customer imports and persisted outbox processing.
 - **PostgreSQL** — system of record.
 - **Redis** — queue/runtime infrastructure.
+- **EVOLUTION-STAGING** — pinned Evolution 2.3.7, persistent sessions and isolated provider data.
 
 ## Local setup
 
@@ -65,4 +66,10 @@ See `docs/architecture/overview.md` and `docs/architecture/context.md`.
 Secrets are never committed. Railway supplies production environment variables. Future integrations such as OpenAI and Evolution API remain optional until their respective phases.
 
 Production uses Node 22 and `pnpm@11.19.0`. The WEB service owns `prisma migrate deploy`; the WORKER never runs migrations.
+
+## WhatsApp staging setup
+
+BM Crédito is available in staging. A platform administrator logs in at `/login`, selects the company at `/platform`, prepares a unique instance name (for example `bm_credito_staging`) and generates the QR Code. The WhatsApp owner scans it under **Aparelhos conectados → Conectar aparelho**. Tenant masters can check/pair their own assigned instance under `/app/settings`. Provider credentials stay server-side.
+
+The first administrator is invited through `pnpm bootstrap:bm:staging` by a trusted Railway operator after the user supplies their access email. The user sets their own password through a single-use activation link; no default password or email delivery is configured. See the [deployment evidence and operational instructions](docs/integrations/evolution-api.md).
 

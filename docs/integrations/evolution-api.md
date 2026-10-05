@@ -16,13 +16,17 @@ Topics to validate at implementation time:
 
 The application domain will depend on `MessagingProvider`, not directly on Evolution API.
 
-## Connector preparation
+## CRM connector and pairing
 
-The platform administrator registers an existing instance against one tenant. Instance names are globally unique in the CRM; tenant users cannot provision or reassign provider instances. Tenant masters can view their own binding and request a read-only connection-state check. Provider URL and key remain server environment variables; they are never persisted in the binding or returned to the UI.
+The platform administrator creates or reuses an instance and binds it to one tenant. Instance names are globally unique in the CRM; tenant users cannot provision or reassign provider instances. Tenant masters can check and pair their own binding. Platform administrators can prepare, check and pair a selected company's instance from `/platform`. Provider URL and key remain server environment variables; they are never persisted in the binding or returned to the UI.
 
 `EvolutionProvider` implements `MessagingProvider` and reads `GET /instance/connectionState/{instanceName}` with the `apikey` header, no redirects, no response cache and a ten-second timeout. The response must name the requested instance. Its shape and path were verified from the pinned [router](https://github.com/evolution-foundation/evolution-api/blob/2.3.7/src/api/routes/instance.router.ts) and [controller](https://github.com/evolution-foundation/evolution-api/blob/2.3.7/src/api/controllers/instance.controller.ts). Public URLs require HTTPS; HTTP is allowed only for Railway internal service domains. Failures persist a safe code, not provider response bodies or credentials.
 
-At the initial preparation check, WEB-STAGING had neither `EVOLUTION_API_URL` nor `EVOLUTION_API_KEY`. Both variables have since been configured on WEB-STAGING and WORKER-STAGING as Railway references. Pairing, message delivery, webhook authentication/retries and conversation persistence remain pending. No real message was sent. The connector's synthetic acceptance uses an explicitly labeled in-process stub and must not be reported as live WhatsApp acceptance. Provisioning the provider does not deploy the Phase 3–5 CRM code or its binding migration.
+`ensureInstance` first checks the exact bound name; only HTTP 404 permits creation with `WHATSAPP-BAILEYS`, QR generation disabled and automatic reads/history sync disabled. The durable CRM binding reserves the name before the external call. Database advisory locks serialize provisioning and pairing across web replicas. A failed preparation persists a safe error and can be retried against the same binding; a repeated success produces one preparation audit. Upstream per-instance tokens are discarded.
+
+Pairing uses `GET /instance/connect/{instanceName}` behind authenticated CRM POST routes. Authorization is checked before the provider call, with active user/membership/tenant checks. OPEN instances are never reconnected by this action. Only validated PNG data URLs are returned; raw QR strings, pairing codes, diagnostics and provider credentials are discarded. Responses use `Cache-Control: no-store, private`. QR images are never saved in CRM records, audit or outbox. The UI removes the image after 20 seconds and polls connection state every five seconds while displayed; this display window is not a claim about upstream QR expiry. The operator can generate another QR if needed.
+
+At the initial preparation check, WEB-STAGING had neither `EVOLUTION_API_URL` nor `EVOLUTION_API_KEY`. Both variables have since been configured on WEB-STAGING and WORKER-STAGING as Railway references. Real-provider acceptance now covers provisioning, status and QR generation on a synthetic instance, followed by provider/database fixture cleanup. No real WhatsApp device has been paired and no real message has been sent. Message delivery, authenticated webhooks and conversation persistence remain pending.
 
 ## Railway staging deployment on 2026-10-05
 
@@ -68,7 +72,22 @@ CACHE_REDIS_PREFIX_KEY=bm_evolution_staging
 
 ### Pairing and upgrades
 
-No WhatsApp instance is paired yet. Release the CRM connector and its binding migration, then register the provider instance for the correct tenant through a platform administrator. Pairing requires the owner to scan a QR code on their WhatsApp device. Prove OPEN state and an authorized message/webhook flow before reporting end-to-end messaging as ready.
+No real WhatsApp instance is paired yet. A platform administrator selects BM Crédito in `/platform`, prepares `bm_credito_staging` and clicks **Gerar QR Code**. Pairing requires the owner to scan it under **Aparelhos conectados → Conectar aparelho** on their WhatsApp device. A tenant master can also pair their assigned instance under `/app/settings`. Prove OPEN state and an authorized message/webhook flow before reporting end-to-end messaging as ready.
+
+`scripts/bootstrap-bm-staging.ts` is a trusted operator-only bootstrap guarded by the exact BM Credito project ID and staging environment. It creates the explicitly requested BM Crédito company idempotently and records an operator-origin audit. With `BOOTSTRAP_ADMIN_EMAIL`, it invites the first platform administrator without a default password, without promoting an existing tenant user or reactivating a suspended administrator. An existing active platform administrator prevents creation of a different first administrator. The invitation is hashed in PostgreSQL; its single-use link is written to a private local file, not printed, emailed or checked into Git. The user sets their password at `/activate` using a token in the URL fragment; the fragment is removed from browser history. Invitation consumption is atomic, so concurrent redemption cannot succeed twice. Administrative login redirects to `/platform`.
+
+## Pairing validation on 2026-10-05
+
+- Local lint/typecheck/production build passed; 46 tests passed, two local connectivity tests skipped.
+- Live provider acceptance used isolated schema `phase5_acceptance_4448d14a4ea8458a852d7d3a920c4a3d`, with nine CRM migrations; schema cleanup verified.
+- Actual Evolution provisioning returned CLOSED, retry reused the instance, and pairing returned a PNG QR with CONNECTING state. The synthetic provider instance was deleted and absence verified after asynchronous cleanup completed.
+- Concurrent provisioning preserved one binding and one preparation audit. Tenant master provisioning, foreign-tenant pairing, consultant pairing, disabled platform administrator and suspended membership were rejected. Disabled bindings could not pair. The QR image was absent from audit metadata.
+- BM Crédito was created as active tenant `cmuvnfd0f0000mvz254t6a1j6` with slug `bm-credito`. Administrator invitation awaits the user's access email.
+- CRM web revision `60252fa` was deployed as `4e7094bd-2b7b-43f2-aeaa-b4baf02c94b6` and reached `SUCCESS`. WEB applied the three additional CRM migrations (planner, governance, messaging binding) before startup.
+- Matching worker deployment `492494e1-8b01-4f01-9921-c043c44f1b4b` reached `SUCCESS`; it does not run migrations. The provider remains on successful deployment `32e43037-120f-4d02-bd1d-94ca0e430257`.
+- Authenticated acceptance against the deployed HTTPS CRM passed actual concurrent provisioning, tenant and platform QR generation, missing session 401, consultant/master-provisioning/foreign-tenant 403, missing binding 404, platform login redirect, QR no-store headers and absence from audit, and concurrent invitation redemption with exactly one success. Temporary users, sessions, invites, tenants, bindings, audit/outbox and provider instance were cleaned up. This verifies synthetic live flows, not a human device or real message delivery.
+
+`pnpm harness:phase5:staging` remains a labeled stub acceptance by default. Set `LIVE_EVOLUTION_ACCEPTANCE=true` only inside the configured staging network to additionally create, pair and remove a unique synthetic provider instance. `LIVE_HTTP_ACCEPTANCE=true pnpm harness:phase5:http` checks the deployed application with temporary fixture users/tenants and real Evolution QR generation; it verifies HTTP authorization, concurrent provisioning, platform login, single-use invitation, no-store responses and cleanup. Neither harness sends messages.
 
 For an upgrade, review the provider release and migration compatibility, back up the database and session volume, test on staging, update the pinned image digest and the adapter contract together, then rerun the live probe. Retain the previous image digest; reverting the image alone does not undo provider database migrations. Do not remove the volume when redeploying.
 
