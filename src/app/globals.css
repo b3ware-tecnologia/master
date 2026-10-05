@@ -36,3 +36,12 @@ th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e8ebf2; }
 .conversation-analysis { border-top: 1px solid var(--border, #e2e8f0); margin-top: 24px; padding-top: 20px; }
 .conversation-analysis p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .conversation-analysis button { margin: 8px 0; }
+.crm-grid { display: grid; grid-template-columns: minmax(250px, 330px) minmax(0, 1fr); gap: 20px; }
+.crm-create, .crm-detail .form { margin: 18px 0; align-items: end; }
+.crm-customer-picker { display: grid; gap: 8px; }
+.crm-customer-picker input, .crm-customer-picker select { width: 100%; }
+.crm-note { border-top: 1px solid #e8ebf2; padding: 12px 0; }
+.crm-note p, .crm-detail p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.conversation-analysis button { padding: 8px 12px; border: 1px solid #cbd2e1; border-radius: 8px; background: white; cursor: pointer; }
+button:disabled { cursor: default; opacity: .55; }
+@media (max-width: 760px) { .crm-grid { grid-template-columns: 1fr; } }

@@ -6,16 +6,17 @@ import { ConflictError, NotFoundError } from "@/domain/errors";
 import { createOpaqueToken, hashToken } from "@/lib/auth/crypto";
 import { UserRepository } from "@/repositories/tenant-repositories";
 import { recordEvent } from "@/services/events";
+import { authorizeTenantMember } from "@/services/customer-scope";
 
 export class UserService {
   list(context: AuthorizationContext) {
     requireCapability(context, "users.read");
-    return new UserRepository(db).list(context.tenantId);
+    return db.$transaction(async (transaction) => { await authorizeTenantMember(transaction, context, "users.read"); return new UserRepository(transaction).list(context.tenantId); });
   }
 
   find(context: AuthorizationContext, userId: string) {
     requireCapability(context, "users.read");
-    return new UserRepository(db).find(context.tenantId, userId);
+    return db.$transaction(async (transaction) => { await authorizeTenantMember(transaction, context, "users.read"); return new UserRepository(transaction).find(context.tenantId, userId); });
   }
 
   async invite(context: AuthorizationContext, input: { name: string; email: string; role: Role }) {
@@ -24,7 +25,7 @@ export class UserService {
     const token = createOpaqueToken();
     const result = await db.$transaction(async (transaction) => {
       const user = await transaction.user.upsert({
-        where: { email }, update: { name: input.name }, create: { email, name: input.name, status: "INVITED" },
+        where: { email }, update: {}, create: { email, name: input.name, status: "INVITED" }, select: { id: true, name: true, email: true, status: true },
       });
       const existing = await transaction.membership.findUnique({ where: { userId_tenantId: { userId: user.id, tenantId: context.tenantId } } });
       if (existing) throw new ConflictError("User already belongs to this tenant");

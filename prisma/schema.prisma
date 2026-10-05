@@ -149,6 +149,9 @@ enum MatchLevel {
 }
 
 model Tenant {
+  crmCases                 CRMCase[]
+  crmNotes                 CRMNote[]
+  customerAssignments      CustomerAssignment[]
   id                       String                     @id @default(cuid())
   name                     String
   slug                     String                     @unique
@@ -188,6 +191,9 @@ model Tenant {
 }
 
 model User {
+  createdCases             CRMCase[]                  @relation("CRMCaseCreator")
+  crmNotes                 CRMNote[]                  @relation("CRMNoteActor")
+  distributedCustomers     CustomerAssignment[]       @relation("DistributionActor")
   id                       String                     @id @default(cuid())
   email                    String                     @unique
   name                     String
@@ -211,31 +217,34 @@ model User {
 }
 
 model Membership {
-  id        String           @id @default(cuid())
-  tenantId  String
-  userId    String
-  role      Role
-  status    MembershipStatus @default(INVITED)
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
-  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  user      User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  customerAssignments CustomerAssignment[]
+  id                  String               @id @default(cuid())
+  tenantId            String
+  userId              String
+  role                Role
+  status              MembershipStatus     @default(INVITED)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   @@unique([userId, tenantId])
+  @@unique([id, tenantId])
   @@index([tenantId])
   @@index([tenantId, role])
 }
 
 model Team {
-  id          String       @id @default(cuid())
-  tenantId    String
-  name        String
-  description String?
-  status      TeamStatus   @default(ACTIVE)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  members     TeamMember[]
+  customerAssignments CustomerAssignment[]
+  id                  String               @id @default(cuid())
+  tenantId            String
+  name                String
+  description         String?
+  status              TeamStatus           @default(ACTIVE)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  members             TeamMember[]
 
   @@unique([id, tenantId])
   @@index([tenantId])
@@ -328,6 +337,8 @@ model OutboxEvent {
 }
 
 model Customer {
+  crmCases                 CRMCase[]
+  assignment               CustomerAssignment?
   conversations            Conversation[]
   id                       String                    @id @default(cuid())
   tenantId                 String
@@ -376,6 +387,7 @@ enum CommunicationChannel {
 }
 
 model RelationshipPlan {
+  crmCases         CRMCase[]
   id               String                     @id @default(cuid())
   tenantId         String
   customerId       String
@@ -491,6 +503,7 @@ enum MessageKind {
 }
 
 model Conversation {
+  crmCases      CRMCase[]
   id            String                @id @default(cuid())
   tenantId      String
   connectionId  String
@@ -509,6 +522,83 @@ model Conversation {
   @@unique([id, tenantId])
   @@unique([connectionId, remoteJid])
   @@index([tenantId, lastMessageAt])
+}
+
+enum CRMCaseStatus {
+  NEW
+  IN_PROGRESS
+  WAITING_CUSTOMER
+  COMPLETED
+  CANCELLED
+}
+
+model CRMCase {
+  id             String            @id @default(cuid())
+  tenantId       String
+  customerId     String
+  conversationId String?
+  planId         String?
+  createdById    String
+  requestKey     String
+  inputHash      String
+  title          String
+  description    String?           @db.Text
+  status         CRMCaseStatus     @default(NEW)
+  version        Int               @default(0)
+  dueAt          DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer       Customer          @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  conversation   Conversation?     @relation(fields: [conversationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  plan           RelationshipPlan? @relation(fields: [planId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  creator        User              @relation("CRMCaseCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  notes          CRMNote[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, requestKey])
+  @@index([tenantId, status, dueAt])
+  @@index([tenantId, customerId])
+  @@index([tenantId, conversationId])
+}
+
+model CRMNote {
+  id         String   @id @default(cuid())
+  tenantId   String
+  caseId     String
+  actorId    String
+  requestKey String
+  inputHash  String
+  body       String   @db.Text
+  createdAt  DateTime @default(now())
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  case       CRMCase  @relation(fields: [caseId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  actor      User     @relation("CRMNoteActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, requestKey])
+  @@index([tenantId, caseId, createdAt])
+}
+
+model CustomerAssignment {
+  id                   String      @id @default(cuid())
+  tenantId             String
+  customerId           String      @unique
+  teamId               String
+  assignedMembershipId String?
+  assignedById         String
+  version              Int         @default(0)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  tenant               Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer             Customer    @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  team                 Team        @relation(fields: [teamId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  assignedMembership   Membership? @relation(fields: [assignedMembershipId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  assignedBy           User        @relation("DistributionActor", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@unique([customerId, tenantId])
+  @@index([tenantId, teamId])
+  @@index([tenantId, assignedMembershipId])
 }
 
 enum AIExecutionStatus {

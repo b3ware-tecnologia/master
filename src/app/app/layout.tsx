@@ -5,5 +5,5 @@ import { resolveAuthorizationContext } from "@/lib/auth/context";
 export default async function TenantLayout({ children }: { children: React.ReactNode }) {
   let context;
   try { context = await resolveAuthorizationContext(); } catch { redirect("/login"); }
-  return <AppShell canPlan={context.capabilities.includes("plans.read")}>{children}</AppShell>;
+  return <AppShell capabilities={context.capabilities}>{children}</AppShell>;
 }

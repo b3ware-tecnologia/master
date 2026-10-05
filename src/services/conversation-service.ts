@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { requireCapability } from "@/lib/auth/context";
 import { normalizeEvolutionWebhook, verifyWebhookToken, WebhookRequestError } from "@/integrations/evolution-webhook";
 import { recordEvent } from "@/services/events";
+import { recordObservedContact } from "@/services/observed-contact";
 
 export async function authenticateEvolutionWebhook(connectionId: string, token: string | null) {
   verifyWebhookToken(connectionId, token);
@@ -41,6 +42,7 @@ export async function receiveEvolutionWebhook(connectionId: string, token: strin
       if (!conversation) conversation = await transaction.conversation.create({ data: { tenantId: connection.tenantId, ...key, customerId, displayName: message.displayName, lastMessageAt: message.occurredAt } });
       else await transaction.conversation.update({ where: { id: conversation.id }, data: { customerId, ...(message.occurredAt >= conversation.lastMessageAt ? { lastMessageAt: message.occurredAt, ...(message.displayName ? { displayName: message.displayName } : {}) } : {}) } });
       const stored = await transaction.conversationMessage.create({ data: { tenantId: connection.tenantId, connectionId, conversationId: conversation.id, providerMessageId: message.providerMessageId, direction: message.direction, kind: message.kind, text: message.text, occurredAt: message.occurredAt } });
+      if (customerId) await recordObservedContact(transaction, connection.tenantId, customerId, message.direction, message.occurredAt);
       await recordEvent(transaction, { tenantId: connection.tenantId, action: "WHATSAPP_MESSAGE_OBSERVED", entityType: "ConversationMessage", entityId: stored.id, metadata: { conversationId: conversation.id, direction: message.direction, kind: message.kind }, idempotencyKey: `message-observed:${stored.id}` });
       accepted++;
     }

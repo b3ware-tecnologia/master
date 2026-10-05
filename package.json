@@ -34,6 +34,10 @@
     "harness:phase6": "tsx scripts/phase-6-acceptance.ts",
     "harness:phase6:staging": "node scripts/phase-2-staging.mjs phase6",
     "harness:phase6:http": "tsx scripts/phase-6-http-acceptance.ts",
+    "harness:phase79": "tsx scripts/phase-7-9-acceptance.ts",
+    "harness:phase79:staging": "node scripts/phase-2-staging.mjs phase79",
+    "harness:phase79:http": "tsx scripts/phase-7-9-http-acceptance.ts",
+    "bootstrap:crm-demo:staging": "tsx scripts/bootstrap-crm-demo-staging.ts",
     "seed": "tsx prisma/seed.ts",
     "prisma": "prisma"
   },
