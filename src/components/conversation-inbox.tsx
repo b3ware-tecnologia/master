@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ConversationAnalysisPanel } from "@/components/conversation-analysis";
 
 type Conversation = { id: string; remoteJid: string; displayName: string | null; lastMessageAt?: string; customer: { id: string; fullName: string } | null; _count?: { messages: number } };
 type ConversationList = { items: Conversation[]; total: number; pageSize: number };
@@ -58,6 +59,7 @@ export function ConversationInbox({ tenantId, platform = false }: { tenantId: st
       {!selected ? <p>Selecione uma conversa para ver o histórico.</p> : messageError ? <p className="error" role="alert">{messageError}</p> : !messages ? <p>Carregando mensagens…</p> : <><h2>{contact(messages.conversation)}</h2><p>{messages.conversation.customer ? <>Cliente: {platform ? messages.conversation.customer.fullName : <Link href={`/app/customers/${messages.conversation.customer.id}`}>{messages.conversation.customer.fullName}</Link>}</> : "Contato ainda sem correspondência exata na base de clientes."}</p>
       <div className="inbox-messages">{[...messages.items].reverse().map((message) => <article key={message.id} className={`inbox-message ${message.direction === "OUTBOUND" ? "outbound" : "inbound"}`}><small>{message.direction === "INBOUND" ? "Recebida" : "Enviada pelo WhatsApp"} · {date(message.occurredAt)}</small>{message.kind !== "TEXT" && <p className="inbox-media">{kindNames[message.kind] ?? "Mídia"} — arquivo indisponível nesta etapa</p>}{message.text !== null && <p>{message.text}</p>}</article>)}</div>
       {messages.total > messages.pageSize && <div className="inbox-pagination"><button disabled={messagePage === 1} onClick={() => { setMessages(null); setMessagePage((value) => value - 1); }}>Mais recentes</button><span>Página {messagePage}</span><button disabled={messagePage * messages.pageSize >= messages.total} onClick={() => { setMessages(null); setMessagePage((value) => value + 1); }}>Mais antigas</button></div>}</>}
+      {selected && messages && <ConversationAnalysisPanel key={`${tenantId}:${selected}`} tenantId={tenantId} conversationId={selected} platform={platform} />}
     </section></div>
   </>;
 }

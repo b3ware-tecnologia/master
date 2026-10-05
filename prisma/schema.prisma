@@ -182,6 +182,7 @@ model Tenant {
   messagingConnection      MessagingConnection?
   conversations            Conversation[]
   messages                 ConversationMessage[]
+  aiExecutions             AIExecution[]
 
   @@index([status])
 }
@@ -205,6 +206,8 @@ model User {
   approvedPlans            RelationshipPlan[]         @relation("PlanApprover")
   communicationPreferences CommunicationPreference[]
   governanceChecks         MessagingGovernanceCheck[]
+  aiExecutions             AIExecution[]              @relation("AIRequester")
+  aiDecisions              AIDecision[]               @relation("AIReviewer")
 }
 
 model Membership {
@@ -501,10 +504,71 @@ model Conversation {
   connection    MessagingConnection   @relation(fields: [connectionId, tenantId], references: [id, tenantId], onDelete: Restrict)
   customer      Customer?             @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
   messages      ConversationMessage[]
+  aiExecutions  AIExecution[]
 
   @@unique([id, tenantId])
   @@unique([connectionId, remoteJid])
   @@index([tenantId, lastMessageAt])
+}
+
+enum AIExecutionStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model AIExecution {
+  id             String            @id @default(cuid())
+  tenantId       String
+  conversationId String
+  requestedById  String
+  requesterRole  Role
+  model          String
+  promptVersion  String
+  fingerprint    String
+  input          Json
+  status         AIExecutionStatus @default(QUEUED)
+  result         Json?
+  errorCode      String?
+  lockToken      String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  conversation   Conversation      @relation(fields: [conversationId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  requestedBy    User              @relation("AIRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  usage          AIUsage?
+  decision       AIDecision?
+
+  @@unique([id, tenantId])
+  @@index([status, createdAt])
+  @@index([tenantId, conversationId, createdAt])
+}
+
+model AIUsage {
+  id           String      @id @default(cuid())
+  tenantId     String
+  executionId  String      @unique
+  inputTokens  Int
+  outputTokens Int
+  createdAt    DateTime    @default(now())
+  execution    AIExecution @relation(fields: [executionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([executionId, tenantId])
+}
+
+model AIDecision {
+  id           String      @id @default(cuid())
+  tenantId     String
+  executionId  String      @unique
+  reviewedById String
+  timelineId   String
+  createdAt    DateTime    @default(now())
+  execution    AIExecution @relation(fields: [executionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  reviewedBy   User        @relation("AIReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+
+  @@unique([executionId, tenantId])
 }
 
 model ConversationMessage {

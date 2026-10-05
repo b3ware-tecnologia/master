@@ -49,7 +49,7 @@ export async function receiveEvolutionWebhook(connectionId: string, token: strin
 }
 
 export type ConversationActor = { tenantId: string; context: AuthorizationContext } | { tenantId: string; platformUserId: string };
-async function authorizeReader(transaction: Prisma.TransactionClient, actor: ConversationActor) {
+export async function authorizeConversationActor(transaction: Prisma.TransactionClient, actor: ConversationActor) {
   if ("context" in actor) {
     requireCapability(actor.context, "messaging.read");
     if (actor.context.tenantId !== actor.tenantId || !await transaction.membership.findFirst({ where: { id: actor.context.membershipId, tenantId: actor.tenantId, userId: actor.context.userId, role: "TENANT_MASTER", status: "ACTIVE", user: { status: "ACTIVE" }, tenant: { status: "ACTIVE" } } })) throw new AuthorizationError();
@@ -58,7 +58,7 @@ async function authorizeReader(transaction: Prisma.TransactionClient, actor: Con
 }
 export async function listConversations(actor: ConversationActor, page = 1) {
   return db.$transaction(async (transaction) => {
-    await authorizeReader(transaction, actor);
+    await authorizeConversationActor(transaction, actor);
     const where = { tenantId: actor.tenantId };
     const [items, total] = await Promise.all([
       transaction.conversation.findMany({ where, orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }], take: 25, skip: (page - 1) * 25, select: { id: true, remoteJid: true, displayName: true, lastMessageAt: true, customer: { select: { id: true, fullName: true } }, _count: { select: { messages: true } } } }),
@@ -69,7 +69,7 @@ export async function listConversations(actor: ConversationActor, page = 1) {
 }
 export async function getConversation(actor: ConversationActor, conversationId: string, page = 1) {
   return db.$transaction(async (transaction) => {
-    await authorizeReader(transaction, actor);
+    await authorizeConversationActor(transaction, actor);
     const conversation = await transaction.conversation.findFirst({ where: { id: conversationId, tenantId: actor.tenantId }, select: { id: true, remoteJid: true, displayName: true, customer: { select: { id: true, fullName: true } } } });
     if (!conversation) throw new NotFoundError();
     const where = { tenantId: actor.tenantId, conversationId };

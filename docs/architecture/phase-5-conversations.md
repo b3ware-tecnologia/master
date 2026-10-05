@@ -38,6 +38,6 @@ Active platform administrators read a explicitly selected company's inbox at `/p
 
 ## Remaining boundaries
 
-This release does not send from the CRM, download/transcribe media, import past conversations, handle edits/deletions/delivery receipts, or run conversation AI. Outbox events are ready for future consumers but the current worker performs bookkeeping only. AI, governed outbound delivery, CRM outcomes and consultant distribution remain later work.
+This Phase 5 release does not send from the CRM, download/transcribe media, import past conversations, handle edits/deletions/delivery receipts, or run conversation AI. The later [Phase 6](phase-6-conversation-ai.md) implements requested AI analysis and reviewed CRM notes with its own worker queue. Governed outbound delivery and consultant distribution remain later work.
 
 The pinned upstream [Baileys implementation](https://github.com/evolution-foundation/evolution-api/blob/2.3.7/src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts) includes raw message console output. The CRM's log/audit boundary does not remove that provider behavior; address provider log redaction and retention before production messaging. Existing provider database/session storage remains managed separately from CRM conversation records.

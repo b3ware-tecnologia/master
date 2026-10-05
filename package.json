@@ -31,6 +31,9 @@
     "harness:phase5inbox": "tsx scripts/phase-5-inbox-acceptance.ts",
     "harness:phase5inbox:staging": "node scripts/phase-2-staging.mjs phase5inbox",
     "harness:phase5inbox:http": "tsx scripts/phase-5-inbox-http-acceptance.ts",
+    "harness:phase6": "tsx scripts/phase-6-acceptance.ts",
+    "harness:phase6:staging": "node scripts/phase-2-staging.mjs phase6",
+    "harness:phase6:http": "tsx scripts/phase-6-http-acceptance.ts",
     "seed": "tsx prisma/seed.ts",
     "prisma": "prisma"
   },

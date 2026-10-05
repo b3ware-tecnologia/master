@@ -73,3 +73,7 @@ BM Crédito is available in staging. A platform administrator logs in at `/login
 
 The first administrator is invited through `pnpm bootstrap:bm:staging` by a trusted Railway operator after the user supplies their access email. The user sets their own password through a single-use activation link; no default password or email delivery is configured. See the [deployment evidence and operational instructions](docs/integrations/evolution-api.md).
 
+## Conversation AI
+
+The inbox supports requested analysis and explicitly reviewed customer timeline notes through an internal AIGateway. OpenAI activation is deferred: without a key the UI displays its configuration status and creates no jobs. See [Phase 6 behavior, acceptance and activation](docs/architecture/phase-6-conversation-ai.md).
+
