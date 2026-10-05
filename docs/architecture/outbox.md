@@ -10,3 +10,7 @@ flowchart LR
   Tx --> Commit --> Worker --> Processed[processedAt]
   Worker -->|failure| Retry[unlock and retry]
 ```
+
+## WhatsApp outbound
+
+The reviewed sending lifecycle is stored separately in `OutboundDispatch`; processing its audit/outbox events never sends a message. A worker durably claims a dispatch before calling the provider and never automatically retries an unknown external outcome. See [Phase 10](phase-10-governed-outbound.md) for confirmation, governance revalidation and observed-message reconciliation.
