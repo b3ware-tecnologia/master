@@ -6,20 +6,22 @@ import { PrismaClient } from "@prisma/client";
 if (process.env.RAILWAY_ENVIRONMENT_NAME?.toLowerCase() !== "staging") {
   throw new Error("This runner requires the Railway staging environment");
 }
-const schema = `phase2_acceptance_${randomUUID().replaceAll("-", "")}`;
+const phase = process.argv[2] ?? "phase2";
+if (!["phase2", "phase3", "phase4"].includes(phase)) throw new Error("Unknown acceptance phase");
+const schema = `${phase}_acceptance_${randomUUID().replaceAll("-", "")}`;
 const url = new URL(process.env.DATABASE_URL);
 url.searchParams.set("schema", schema);
 const database = new PrismaClient({ datasourceUrl: url.toString() });
-const env = { ...process.env, DATABASE_URL: url.toString(), PHASE2_ISOLATED_SCHEMA: schema };
+const env = { ...process.env, DATABASE_URL: url.toString(), PHASE2_ISOLATED_SCHEMA: schema, ACCEPTANCE_ISOLATED_SCHEMA: schema };
 function run(args) {
   const result = spawnSync("pnpm", args, { env, stdio: "inherit", shell: process.platform === "win32" });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`Phase 2 command failed (exit ${result.status})`);
+  if (result.status !== 0) throw new Error(`${phase} command failed (exit ${result.status})`);
 }
 try {
-  console.log(`PHASE_2_ISOLATED_SCHEMA=${schema}`);
+  console.log(`ACCEPTANCE_ISOLATED_SCHEMA=${schema}`);
   run(["prisma", "migrate", "deploy"]);
-  run(["harness:phase2"]);
+  run([`harness:${phase}`]);
 } finally {
   // schema is generated here, never read from user input or an environment variable.
   await database.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);

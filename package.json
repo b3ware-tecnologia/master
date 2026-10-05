@@ -18,6 +18,8 @@
     "harness:staging": "tsx scripts/harness.ts staging",
     "harness:phase2": "tsx scripts/phase-2-acceptance.ts",
     "harness:phase2:staging": "node scripts/phase-2-staging.mjs",
+    "harness:phase3": "tsx scripts/phase-3-acceptance.ts",
+    "harness:phase3:staging": "node scripts/phase-2-staging.mjs phase3",
     "seed": "tsx prisma/seed.ts",
     "prisma": "prisma"
   },

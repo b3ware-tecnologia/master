@@ -7,6 +7,7 @@ export const capabilities = [
   "customers.read", "customers.create", "customers.update", "customers.archive",
   "lists.read", "lists.create", "lists.update", "lists.archive", "lists.import",
   "tags.read", "tags.manage",
+  "plans.read", "plans.manage", "plans.approve",
 ] as const;
 
 export type Capability = (typeof capabilities)[number];

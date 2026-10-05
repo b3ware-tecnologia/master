@@ -175,6 +175,7 @@ model Tenant {
   customerSources        CustomerSource[]
   customerListMembers    CustomerListMember[]
   importColumnMappings   ImportColumnMapping[]
+  relationshipPlans      RelationshipPlan[]
 
   @@index([status])
 }
@@ -194,6 +195,8 @@ model User {
   auditEvents    AuditEvent[]       @relation("AuditActor")
   imports        Import[]           @relation("ImportCreatedBy")
   timelineEvents CustomerTimeline[] @relation("TimelineActor")
+  createdPlans   RelationshipPlan[] @relation("PlanCreator")
+  approvedPlans  RelationshipPlan[] @relation("PlanApprover")
 }
 
 model Membership {
@@ -274,17 +277,17 @@ model InviteToken {
 }
 
 model AuditEvent {
-  id          String   @id @default(cuid())
-  tenantId    String?
-  actorUserId String?
-  action      String
-  entityType  String
-  entityId    String
-  metadata    Json?
-  idempotencyKey String? @unique
-  createdAt   DateTime @default(now())
-  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  actor       User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  id             String   @id @default(cuid())
+  tenantId       String?
+  actorUserId    String?
+  action         String
+  entityType     String
+  entityId       String
+  metadata       Json?
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
+  tenant         Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  actor          User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
   @@index([actorUserId])
@@ -292,20 +295,20 @@ model AuditEvent {
 }
 
 model OutboxEvent {
-  id            String    @id @default(cuid())
-  tenantId      String?
-  eventType     String
-  aggregateType String
-  aggregateId   String
-  payload       Json
-  createdAt     DateTime  @default(now())
-  processedAt   DateTime?
-  attempts      Int       @default(0)
-  lastError     String?
-  lockedAt      DateTime?
-  idempotencyKey String? @unique
-  processingAt  DateTime?
-  tenant        Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  id             String    @id @default(cuid())
+  tenantId       String?
+  eventType      String
+  aggregateType  String
+  aggregateId    String
+  payload        Json
+  createdAt      DateTime  @default(now())
+  processedAt    DateTime?
+  attempts       Int       @default(0)
+  lastError      String?
+  lockedAt       DateTime?
+  idempotencyKey String?   @unique
+  processingAt   DateTime?
+  tenant         Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([processedAt])
   @@index([createdAt])
@@ -339,11 +342,51 @@ model Customer {
   conflictsAsSecondary CustomerDataConflict[]    @relation("ConflictSecondary")
   timeline             CustomerTimeline[]
   snapshots            CustomerProfileSnapshot[]
+  relationshipPlans    RelationshipPlan[]
 
   @@unique([id, tenantId])
   @@index([tenantId, status])
   @@index([tenantId, relationshipState])
   @@index([tenantId, fullName])
+}
+
+enum RelationshipPlanStatus {
+  DRAFT
+  APPROVED
+  CANCELLED
+}
+
+enum CommunicationChannel {
+  WHATSAPP
+  EMAIL
+  PHONE
+}
+
+model RelationshipPlan {
+  id           String                 @id @default(cuid())
+  tenantId     String
+  customerId   String
+  createdById  String
+  approvedById String?
+  requestKey   String
+  purpose      String
+  message      String
+  channel      CommunicationChannel
+  scheduledAt  DateTime
+  status       RelationshipPlanStatus @default(DRAFT)
+  approvedAt   DateTime?
+  cancelledAt  DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer     Customer               @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  creator      User                   @relation("PlanCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approver     User?                  @relation("PlanApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, requestKey])
+  @@unique([id, tenantId])
+  @@index([tenantId, status, scheduledAt])
+  @@index([tenantId, customerId])
 }
 
 model CustomerIdentifier {
@@ -422,9 +465,9 @@ model CustomerSource {
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   customer   Customer @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
+  @@unique([tenantId, customerId, sourceType, sourceId])
   @@index([tenantId, sourceType])
   @@index([customerId, tenantId])
-  @@unique([tenantId, customerId, sourceType, sourceId])
 }
 
 model CustomerList {
@@ -529,22 +572,22 @@ model ImportColumnMapping {
 }
 
 model ImportRow {
-  id           String          @id @default(cuid())
-  importId     String
-  rowNumber    Int
-  status       ImportRowStatus @default(PENDING)
-  rawData      Json
-  normalized   Json?
-  customerId   String?
-  matchLevel   MatchLevel?
-  errorMessage String?
-  processedAt  DateTime?
-  attempts     Int          @default(0)
+  id            String          @id @default(cuid())
+  importId      String
+  rowNumber     Int
+  status        ImportRowStatus @default(PENDING)
+  rawData       Json
+  normalized    Json?
+  customerId    String?
+  matchLevel    MatchLevel?
+  errorMessage  String?
+  processedAt   DateTime?
+  attempts      Int             @default(0)
   nextAttemptAt DateTime?
-  import       Import          @relation(fields: [importId], references: [id], onDelete: Cascade)
-  tenant       Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer     Customer?       @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  tenantId     String
+  import        Import          @relation(fields: [importId], references: [id], onDelete: Cascade)
+  tenant        Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer      Customer?       @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  tenantId      String
 
   @@unique([importId, rowNumber])
   @@index([importId, status])

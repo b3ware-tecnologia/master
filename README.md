@@ -6,7 +6,7 @@ Foundation for a multi-tenant relationship platform.
 
 Phase 2 — Customer domain, list import and Customer 360; release acceptance in progress.
 
-Phases 0 and 1 and the initial Phase 2 customer import are merged into `master`. The repository default branch `main` still contains only the bootstrap README; use `master` for the application. The import mapping and resilience continuation is tracked in [PR #10](https://github.com/bmcredito/master/pull/10). Phase 3 has not started.
+Phases 0 and 1 and the initial Phase 2 customer import are merged into `master`. The repository default branch `main` still contains only the bootstrap README; use `master` for the application. The import mapping and resilience continuation is tracked in [PR #10](https://github.com/bmcredito/master/pull/10) and [PR #11](https://github.com/bmcredito/master/pull/11). Phase 3 adds the relationship planner on top of that continuation; see [its acceptance evidence](docs/architecture/phase-3-relationship-planner.md).
 
 See [the continuation evidence](docs/architecture/phase-2-continuation-2026-10-05.md) for current validation and remaining release gates.
 
