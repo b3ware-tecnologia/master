@@ -95,6 +95,21 @@ export async function cancelOutbound(actor: CRMActor, id: string, expectedVersio
     return transaction.outboundDispatch.findUniqueOrThrow({ where: { id }, select: publicSelect });
   });
 }
+export async function retryOutbound(actor: CRMActor, id: string, input: { expectedVersion: number; confirmed: true }, runtime = defaultRuntime) {
+  const data = z.strictObject({ expectedVersion: z.number().int().min(0), confirmed: z.literal(true) }).parse(input);
+  return db.$transaction(async (transaction) => {
+    await authorizeCRMActor(transaction, actor, "messaging.send");
+    const item = await transaction.outboundDispatch.findFirst({ where: { id, tenantId: actor.tenantId } }); if (!item) throw new NotFoundError();
+    await lockMessagingTarget(transaction, actor.tenantId, item.customerId);
+    if (item.status !== "DEAD_LETTER" || item.version !== data.expectedVersion || item.providerMessageId) throw new ConflictError("Somente uma falha confirmada antes do envio pode ser retomada.");
+    const state = await snapshot(transaction, actor, item.planId, item.recipientIdentifierId, runtime, item.id, item.connectionId);
+    if (!state.eligible || state.plan.message !== item.message || state.recipient?.normalizedValue !== item.recipient) throw new ConflictError("O texto, destinatário ou as condições de envio mudaram. Confira o plano.");
+    const changed = await transaction.outboundDispatch.updateMany({ where: { id, status: "DEAD_LETTER", version: data.expectedVersion }, data: { status: "QUEUED", snapshotHash: state.snapshotHash, requestedById: actorId(actor), requestedMembershipId: "context" in actor ? actor.context.membershipId : null, reasons: [], attempts: 0, nextAttemptAt: new Date(), startedAt: null, claimToken: null, version: { increment: 1 } } });
+    if (!changed.count) throw new ConflictError("A tentativa mudou.");
+    await recordEvent(transaction, { tenantId: actor.tenantId, actorUserId: actorId(actor), action: "WHATSAPP_SEND_RETRY_AUTHORIZED", entityType: "OutboundDispatch", entityId: id, metadata: { previousVersion: data.expectedVersion } });
+    return transaction.outboundDispatch.findUniqueOrThrow({ where: { id }, select: publicSelect });
+  });
+}
 async function observedCandidates(transaction: Prisma.TransactionClient, item: OutboundDispatch) {
   if (!item.startedAt) return [];
   return transaction.conversationMessage.findMany({ where: { tenantId: item.tenantId, connectionId: item.connectionId, direction: "OUTBOUND", kind: "TEXT", text: item.message, conversation: { remoteJid: `${item.recipient}@s.whatsapp.net` }, occurredAt: { gte: new Date(item.startedAt.valueOf() - 30_000), lte: new Date(item.startedAt.valueOf() + 120_000) } }, take: 20, orderBy: { occurredAt: "asc" }, select: { id: true, providerMessageId: true, occurredAt: true } });
@@ -137,7 +152,7 @@ async function finish(transaction: Prisma.TransactionClient, item: OutboundDispa
     }
     await transaction.messagingConnection.update({ where: { id: item.connectionId }, data: { lastOutboundAt: new Date() } });
   }
-  await recordEvent(transaction, { tenantId: item.tenantId, action: `WHATSAPP_SEND_${status}`, entityType: "OutboundDispatch", entityId: item.id, metadata: { reasons }, idempotencyKey: `outbound-${status.toLowerCase()}:${item.id}:${item.attempts}` });
+  await recordEvent(transaction, { tenantId: item.tenantId, action: `WHATSAPP_SEND_${status}`, entityType: "OutboundDispatch", entityId: item.id, metadata: { reasons }, idempotencyKey: `outbound-${status.toLowerCase()}:${item.id}:${item.version}` });
 }
 export async function processOutboundBatch(runtime = defaultRuntime) {
   // Unknown outcomes are never automatically retried, including a crashed worker after the durable claim.

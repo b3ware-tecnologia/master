@@ -3,10 +3,10 @@ import { z } from "zod";
 import { apiError } from "@/lib/http";
 import { conversationActor } from "@/lib/conversation-http";
 import { outboundRequestSchema, outboundCancelSchema, outboundReconcileSchema } from "@/domain/outbound";
-import { listOutbound, outboundPreview, requestOutbound, cancelOutbound, outboundDetail, reconcileOutbound } from "@/services/outbound-service";
+import { listOutbound, outboundPreview, requestOutbound, cancelOutbound, outboundDetail, reconcileOutbound, retryOutbound } from "@/services/outbound-service";
 import { createPlan, createPlanSchema, changePlan, planActionSchema } from "@/services/relationship-plan-service";
 import { outboundGovernanceSetup, saveMessagingPolicy, policySchema, saveCommunicationPreference, consentSchema } from "@/services/messaging-governance";
-type Operation = "list" | "preview" | "request" | "detail" | "cancel" | "reconcile" | "setup" | "policy" | "consent" | "plan-create" | "plan-change";
+type Operation = "list" | "preview" | "request" | "detail" | "cancel" | "reconcile" | "retry" | "setup" | "policy" | "consent" | "plan-create" | "plan-change";
 export async function outboundHttp(request: NextRequest, platform: boolean, operation: Operation, id?: string) {
   try {
     const actor = await conversationActor(request, platform); let result: unknown;
@@ -16,6 +16,7 @@ export async function outboundHttp(request: NextRequest, platform: boolean, oper
       case "request": result = await requestOutbound(actor, outboundRequestSchema.parse(await request.json())); break;
       case "detail": result = await outboundDetail(actor, id!); break;
       case "cancel": result = await cancelOutbound(actor, id!, outboundCancelSchema.parse(await request.json()).expectedVersion); break;
+      case "retry": result = await retryOutbound(actor, id!, await request.json()); break;
       case "reconcile": { const value = outboundReconcileSchema.parse(await request.json()); result = await reconcileOutbound(actor, id!, value.expectedVersion, value.messageId); break; }
       case "setup": result = await outboundGovernanceSetup(actor, request.nextUrl.searchParams.get("customerId") ?? undefined); break;
       case "policy": result = await saveMessagingPolicy(actor, policySchema.parse(await request.json())); break;

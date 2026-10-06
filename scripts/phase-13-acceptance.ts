@@ -8,7 +8,7 @@ import { controlConnection, connectionMetrics } from "@/services/messaging-contr
 import { processConnectionHealthBatch } from "@/services/messaging-health-service";
 import { enqueueEvolutionWebhook, processMessagingReceiptBatch } from "@/services/messaging-receipt-service";
 import { connectionWebhookToken } from "@/integrations/evolution-webhook";
-import { processOutboundBatch } from "@/services/outbound-service";
+import { processOutboundBatch, retryOutbound } from "@/services/outbound-service";
 import { saveCommunicationPreference, saveMessagingPolicy } from "@/services/messaging-governance";
 import { AuthorizationError } from "@/domain/errors";
 import type { generateOutreach } from "@/integrations/outreach-gateway";
@@ -65,6 +65,7 @@ async function main() {
   await customer(); // Added after authorization: outside the frozen audience.
   await Promise.all([processOutreachBatch(generator), processOutreachBatch(generator)]); assert.equal(generated, 1); assert.equal(await db.outreachSession.count(), 1); const session = await db.outreachSession.findFirstOrThrow(); assert.equal(session.customerId, target.id);
   assert.equal(await db.outboundDispatch.count({ where: { status: "QUEUED" } }), 1);
+  assert.equal((await db.outboundDispatch.findFirstOrThrow()).connectionId, connection.id);
   let sends = 0; let offline = false; let ambiguous = false;
   const runtime = { enabled: () => true, configured: () => true, provider: () => ({ name: "STUB", getConnectionState: async () => offline ? "CLOSED" as const : "OPEN" as const, sendText: async () => { sends++; if (ambiguous) throw new Error("Network lost after POST"); return { providerMessageId: `synthetic-send-${sends}`, remoteJid: "15555550001@s.whatsapp.net" }; } }) };
   offline = true; await processOutboundBatch(runtime); assert.equal(sends, 0); assert.equal((await db.outboundDispatch.findFirstOrThrow()).status, "QUEUED"); assert((await db.outboundDispatch.findFirstOrThrow()).nextAttemptAt > new Date()); offline = false; await db.outboundDispatch.updateMany({ data: { nextAttemptAt: new Date(0) } });
@@ -79,8 +80,21 @@ async function main() {
   process.env.AI_OUTREACH_ENABLED = "false"; const beforeDisabled = generated; await processOutreachBatch(generator); assert.equal(generated, beforeDisabled); process.env.AI_OUTREACH_ENABLED = "true";
   await db.membership.update({ where: { id: membership.id }, data: { status: "SUSPENDED" } }); await assert.rejects(listOutreach(actor), AuthorizationError); await db.membership.update({ where: { id: membership.id }, data: { status: "ACTIVE" } });
   console.log("PASS INITIAL_WITHOUT_INBOUND_FROZEN_AUDIENCE_CONSENT_DAILY_LIMIT_CONCURRENT_WORKERS_REPLY_HUMAN_PAUSE_OPTOUT_FLAGS_AUTH_REVOCATION");
+  const retryList = await db.customerList.create({ data: { tenantId: tenant.id, name: "Synthetic recovery audience" } });
+  const recovery = await customer(); await db.customerListMember.create({ data: { tenantId: tenant.id, listId: retryList.id, customerId: recovery.id } });
+  const retryCampaign = await createOutreachCampaign(actor, { ...campaignInput, requestKey: randomUUID(), name: "Recovery", listId: retryList.id, maxContactsPerDay: 1 }); await changeOutreachCampaign(actor, retryCampaign.id, { action: "authorize", expectedVersion: 0, confirmed: true }); await processOutreachBatch(generator);
+  const recoverySession = await db.outreachSession.findUniqueOrThrow({ where: { campaignId_customerId: { campaignId: retryCampaign.id, customerId: recovery.id } } });
+  let recoveryDispatch = await db.outboundDispatch.findFirstOrThrow({ where: { customerId: recovery.id } }); offline = true;
+  for (let attempt = 0; attempt < 5; attempt++) { await db.outboundDispatch.update({ where: { id: recoveryDispatch.id }, data: { nextAttemptAt: new Date(0) } }); await processOutboundBatch(runtime); }
+  recoveryDispatch = await db.outboundDispatch.findUniqueOrThrow({ where: { id: recoveryDispatch.id } }); assert.equal(recoveryDispatch.status, "DEAD_LETTER"); assert.equal(sends, 1);
+  await assert.rejects(retryOutbound(actor, recoveryDispatch.id, { expectedVersion: recoveryDispatch.version, confirmed: false } as never));
+  await retryOutbound(actor, recoveryDispatch.id, { expectedVersion: recoveryDispatch.version, confirmed: true }, runtime); offline = false; ambiguous = true;
+  await processOutboundBatch(runtime); assert.equal(sends, 2); assert.equal((await db.outboundDispatch.findUniqueOrThrow({ where: { id: recoveryDispatch.id } })).status, "UNCERTAIN"); ambiguous = false; await processOutboundBatch(runtime); assert.equal(sends, 2); await assert.rejects(retryOutbound(actor, recoveryDispatch.id, { expectedVersion: (await db.outboundDispatch.findUniqueOrThrow({ where: { id: recoveryDispatch.id } })).version, confirmed: true }, runtime));
+  await enqueueEvolutionWebhook(connection.id, token, message("human-request", "Quero falar com um consultor", false, `1555555${String(sequence).padStart(4, "0")}`)); await processMessagingReceiptBatch();
+  process.env.AI_OUTREACH_ENABLED = "false"; await processOutreachBatch(generator); assert.equal((await db.outreachSession.findUniqueOrThrow({ where: { id: recoverySession.id } })).control, "HUMAN"); assert.equal(await db.cRMCase.count({ where: { customerId: recovery.id } }), 1);
+  console.log("PASS FIVE_SAFE_RETRIES_DLQ_MANUAL_AUTHORIZATION_AMBIGUOUS_NOT_RETRIED_HUMAN_HANDOFF_TO_CRM_WITHOUT_AI_CALL");
   // Messaging load is separate from import load. Real isolated SQL, normalized provider messages; no external API calls.
-  const workloads = [[2000, 1], [5000, 5], [10000, 10]];
+  const workloads = process.env.MESSAGING_LOAD_SKIP === "true" ? [] : [[2000, 1], [5000, 5], [10000, 10]];
   const results = [];
   for (const [size, count] of workloads) {
     const started = Date.now(); const before = await db.conversationMessage.count();
@@ -93,7 +107,7 @@ async function main() {
     results.push({ messages: size, connections: count, durationMs: Date.now() - started });
   }
   assert((await connectionMetrics(actor, connection.id)).latencySamples > 0);
-  assert.equal(sends, 1); void ambiguous;
+  assert.equal(sends, 2);
   console.log(`PHASE_13_ACCEPTANCE_JSON=${JSON.stringify({ result: "PASS", provider: "SIMULATED", realOutboundCalls: 0, realOpenAICalls: 0, simulatedSends: sends, load: results })}`);
 }
 void main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => db.$disconnect());

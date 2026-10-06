@@ -1,10 +1,11 @@
-import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
+import { Prisma, type Conversation, type ConversationMessage } from "@prisma/client";
 import type { AuthorizationContext } from "@/domain/access";
 import { AuthorizationError, NotFoundError } from "@/domain/errors";
 import { db } from "@/lib/db";
 import { requireCapability } from "@/lib/auth/context";
 import { normalizeEvolutionWebhook, verifyWebhookToken, WebhookRequestError, type NormalizedWebhook } from "@/integrations/evolution-webhook";
-import { recordEvent } from "@/services/events";
+import { recordEvent, recordNewEvents } from "@/services/events";
 import { recordObservedContact } from "@/services/observed-contact";
 import { observeOutreachInbound } from "@/services/outreach-inbound";
 
@@ -39,26 +40,33 @@ export async function applyEvolutionWebhook(transaction: Prisma.TransactionClien
       return { accepted: event.deliveries.length, duplicates: 0, ignored: false };
     }
     let accepted = 0; let duplicates = 0;
+    const seen = new Set((await transaction.conversationMessage.findMany({ where: { connectionId, providerMessageId: { in: event.messages.map((item) => item.providerMessageId) } }, select: { providerMessageId: true } })).map((item) => item.providerMessageId));
+    const conversations = new Map<string, Conversation>(); const customers = new Map<string, string | null>();
+    const newMessages: ConversationMessage[] = []; const contacts = new Map<string, { customerId: string; direction: "INBOUND" | "OUTBOUND"; occurredAt: Date }>();
     for (const message of event.messages) {
-      if (await transaction.conversationMessage.findUnique({ where: { connectionId_providerMessageId: { connectionId, providerMessageId: message.providerMessageId } } })) { duplicates++; continue; }
+      if (seen.has(message.providerMessageId)) { duplicates++; continue; } seen.add(message.providerMessageId);
       const key = { connectionId, remoteJid: message.remoteJid };
-      let conversation = await transaction.conversation.findUnique({ where: { connectionId_remoteJid: key } });
+      let conversation = conversations.get(message.remoteJid) ?? await transaction.conversation.findUnique({ where: { connectionId_remoteJid: key } });
       let customerId = conversation?.customerId ?? null;
       if (!customerId && message.remoteJid.endsWith("@s.whatsapp.net")) {
         const phone = message.remoteJid.split("@")[0];
-        const matches = await transaction.customerIdentifier.findMany({ where: { tenantId: connection.tenantId, type: "PHONE", normalizedValue: phone, customer: { status: "ACTIVE" } }, select: { customerId: true }, take: 2 });
-        if (matches.length === 1) customerId = matches[0].customerId;
+        if (!customers.has(phone)) { const matches = await transaction.customerIdentifier.findMany({ where: { tenantId: connection.tenantId, type: "PHONE", normalizedValue: phone, customer: { status: "ACTIVE" } }, select: { customerId: true }, take: 2 }); customers.set(phone, matches.length === 1 ? matches[0].customerId : null); }
+        customerId = customers.get(phone) ?? null;
       }
       if (!conversation) conversation = await transaction.conversation.create({ data: { tenantId: connection.tenantId, ...key, customerId, displayName: message.displayName, lastMessageAt: message.occurredAt } });
-      else await transaction.conversation.update({ where: { id: conversation.id }, data: { customerId, ...(message.occurredAt >= conversation.lastMessageAt ? { lastMessageAt: message.occurredAt, ...(message.displayName ? { displayName: message.displayName } : {}) } : {}) } });
-      const stored = await transaction.conversationMessage.create({ data: { tenantId: connection.tenantId, connectionId, conversationId: conversation.id, providerMessageId: message.providerMessageId, direction: message.direction, kind: message.kind, text: message.text, occurredAt: message.occurredAt, deliveryState: message.direction === "OUTBOUND" ? "SENT" : "RECEIVED" } });
-      if (message.direction === "OUTBOUND") await reconcileDelivery(transaction, connectionId, message.providerMessageId);
-      await transaction.messagingConnection.update({ where: { id: connectionId }, data: message.direction === "INBOUND" ? { lastInboundAt: new Date() } : { lastOutboundAt: new Date() } });
-      if (customerId) await recordObservedContact(transaction, connection.tenantId, customerId, message.direction, message.occurredAt);
-      await observeOutreachInbound(transaction, stored, customerId);
-      await recordEvent(transaction, { tenantId: connection.tenantId, action: "WHATSAPP_MESSAGE_OBSERVED", entityType: "ConversationMessage", entityId: stored.id, metadata: { conversationId: conversation.id, direction: message.direction, kind: message.kind }, idempotencyKey: `message-observed:${stored.id}` });
+      else conversation = { ...conversation, customerId, ...(message.occurredAt >= conversation.lastMessageAt ? { lastMessageAt: message.occurredAt, ...(message.displayName ? { displayName: message.displayName } : {}) } : {}) };
+      conversations.set(message.remoteJid, conversation);
+      const stored: ConversationMessage = { id: randomUUID(), tenantId: connection.tenantId, connectionId, conversationId: conversation.id, providerMessageId: message.providerMessageId, direction: message.direction, kind: message.kind, text: message.text, occurredAt: message.occurredAt, deliveryState: message.direction === "OUTBOUND" ? "SENT" : "RECEIVED", deliveredAt: null, readAt: null, receivedAt: new Date() };
+      newMessages.push(stored);
+      if (customerId) { const contactKey = `${customerId}:${message.direction}`; const old = contacts.get(contactKey); if (!old || old.occurredAt < message.occurredAt) contacts.set(contactKey, { customerId, direction: message.direction, occurredAt: message.occurredAt }); }
       accepted++;
     }
+    for (const conversation of conversations.values()) await transaction.conversation.update({ where: { id: conversation.id }, data: { customerId: conversation.customerId, displayName: conversation.displayName, lastMessageAt: conversation.lastMessageAt } });
+    if (newMessages.length) await transaction.conversationMessage.createMany({ data: newMessages });
+    for (const contact of contacts.values()) await recordObservedContact(transaction, connection.tenantId, contact.customerId, contact.direction, contact.occurredAt);
+    for (const message of newMessages) { if (message.direction === "OUTBOUND") await reconcileDelivery(transaction, connectionId, message.providerMessageId); const customerId = conversations.get(event.messages.find((item) => item.providerMessageId === message.providerMessageId)!.remoteJid)?.customerId ?? null; if (customerId) await observeOutreachInbound(transaction, message, customerId); }
+    await recordNewEvents(transaction, newMessages.map((message) => ({ tenantId: connection.tenantId, action: "WHATSAPP_MESSAGE_OBSERVED", entityType: "ConversationMessage", entityId: message.id, metadata: { conversationId: message.conversationId, direction: message.direction, kind: message.kind }, idempotencyKey: `message-observed:${message.id}` })));
+    if (newMessages.length) await transaction.messagingConnection.update({ where: { id: connectionId }, data: { ...(newMessages.some((item) => item.direction === "INBOUND") ? { lastInboundAt: new Date() } : {}), ...(newMessages.some((item) => item.direction === "OUTBOUND") ? { lastOutboundAt: new Date() } : {}) } });
     return { accepted, duplicates, ignored: event.messages.length === 0 };
 }
 

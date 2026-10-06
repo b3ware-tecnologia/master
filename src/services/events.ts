@@ -18,3 +18,12 @@ export async function recordEvent(transaction: Prisma.TransactionClient, input: 
     idempotencyKey,
   } });
 }
+
+// For newly-created aggregates in one serialized transaction. Keys must be unique;
+// a conflict rolls back the entire batch, including the messages and receipt.
+export async function recordNewEvents(transaction: Prisma.TransactionClient, inputs: EventInput[]) {
+  if (!inputs.length) return;
+  const events = inputs.map((input) => ({ ...input, idempotencyKey: input.idempotencyKey ? `${input.tenantId ?? "platform"}:${input.idempotencyKey}` : undefined }));
+  await transaction.auditEvent.createMany({ data: events });
+  await transaction.outboxEvent.createMany({ data: events.map((input) => ({ tenantId: input.tenantId, eventType: input.action, aggregateType: input.entityType, aggregateId: input.entityId, payload: { entityId: input.entityId, metadata: input.metadata }, idempotencyKey: input.idempotencyKey })) });
+}
