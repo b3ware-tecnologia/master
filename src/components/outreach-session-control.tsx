@@ -1,0 +1,7 @@
+"use client";
+import { useState } from "react";
+export function OutreachSessionControl({ session, tenantId, platform, canResume, onChanged }: { session: { id: string; control: string; version: number }; tenantId: string; platform: boolean; canResume: boolean; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  async function change(control: string) { setBusy(true); setError(""); try { const response = await fetch(`${platform ? "/api/platform" : "/api"}/outreach/sessions/${session.id}?tenantId=${encodeURIComponent(tenantId)}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-tenant-id": tenantId }, body: JSON.stringify({ control, expectedVersion: session.version }) }); const value = await response.json(); if (!response.ok) throw new Error(value.error); onChanged(); } catch (error) { setError(error instanceof Error ? error.message : "Ação indisponível."); } finally { setBusy(false); } }
+  return <section className="notice"><strong>{session.control === "AI" ? "Atendimento com a assistente virtual" : session.control === "HUMAN" ? "Atendimento com a equipe" : "Cliente encerrou o contato"}</strong>{session.control === "AI" && <p><button disabled={busy} onClick={() => void change("HUMAN")}>Assumir atendimento e pausar a IA</button></p>}{session.control === "HUMAN" && canResume && <p><button disabled={busy} onClick={() => void change("AI")}>Devolver à assistente virtual</button></p>}{error && <p className="error" role="alert">{error}</p>}</section>;
+}

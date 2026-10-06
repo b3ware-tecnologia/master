@@ -11,6 +11,8 @@ import { authorizeCRMActor, type CRMActor } from "@/services/crm-service";
 import { evaluateEligibility } from "@/services/messaging-governance";
 import { lockMessagingTarget } from "@/services/messaging-locks";
 import { recordEvent } from "@/services/events";
+import { resolveMessagingConnection } from "@/services/messaging-connection-resolver";
+import { assertAutomatedPlan } from "@/services/outreach-authority";
 
 type Runtime = { enabled: () => boolean; configured: () => boolean; provider: () => SendingMessagingProvider };
 const defaultRuntime: Runtime = { enabled: outboundEnabled, configured: () => Boolean(process.env.EVOLUTION_API_URL && process.env.EVOLUTION_API_KEY), provider: configuredEvolutionProvider };
@@ -18,14 +20,15 @@ function actorId(actor: CRMActor) { return "context" in actor ? actor.context.us
 function hash(value: unknown) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 const publicSelect = { id: true, planId: true, status: true, version: true, reasons: true, createdAt: true, startedAt: true, acceptedAt: true, providerMessageId: true, customer: { select: { fullName: true } } } satisfies Prisma.OutboundDispatchSelect;
 
-async function snapshot(transaction: Prisma.TransactionClient, actor: CRMActor, planId: string, recipientIdentifierId?: string, runtime = defaultRuntime, excludeId?: string) {
+async function snapshot(transaction: Prisma.TransactionClient, actor: CRMActor, planId: string, recipientIdentifierId?: string, runtime = defaultRuntime, excludeId?: string, connectionId?: string) {
   await authorizeCRMActor(transaction, actor, "messaging.send");
   const plan = await transaction.relationshipPlan.findFirst({ where: { id: planId, tenantId: actor.tenantId }, include: { customer: { include: { identifiers: true } } } });
   if (!plan) throw new NotFoundError();
+  await assertAutomatedPlan(transaction, plan.id);
   const [policy, preference, connection, accepted, pending] = await Promise.all([
     transaction.messagingPolicy.findUnique({ where: { tenantId: actor.tenantId } }),
     transaction.communicationPreference.findUnique({ where: { tenantId_customerId_channel: { tenantId: actor.tenantId, customerId: plan.customerId, channel: "WHATSAPP" } } }),
-    transaction.messagingConnection.findUnique({ where: { tenantId: actor.tenantId } }),
+    resolveMessagingConnection(transaction, actor.tenantId, connectionId),
     transaction.outboundDispatch.findFirst({ where: { tenantId: actor.tenantId, customerId: plan.customerId, status: "ACCEPTED" }, orderBy: [{ acceptedAt: "desc" }, { id: "desc" }], select: { id: true, acceptedAt: true } }),
     transaction.outboundDispatch.findFirst({ where: { tenantId: actor.tenantId, customerId: plan.customerId, status: { in: ["SENDING", "UNCERTAIN"] }, ...(excludeId ? { id: { not: excludeId } } : {}) }, select: { id: true } }),
   ]);
@@ -43,11 +46,12 @@ async function snapshot(transaction: Prisma.TransactionClient, actor: CRMActor, 
   const snapshotHash = hash({ plan: { id: plan.id, tenantId: plan.tenantId, customerId: plan.customerId, status: plan.status, approvedAt: plan.approvedAt, updatedAt: plan.updatedAt, message: plan.message, channel: plan.channel, scheduledAt: plan.scheduledAt }, customerStatus: plan.customer.status, lastOutboundAt: plan.customer.lastOutboundAt, recipient: recipient ? { id: recipient.id, value: recipient.normalizedValue, verification: recipient.verification, updatedAt: recipient.updatedAt } : null, policy, preference: preference ? { consent: preference.consent, updatedAt: preference.updatedAt } : null, connection: connection ? { id: connection.id, instanceName: connection.instanceName, enabled: connection.enabled } : null, accepted });
   return { plan, recipient, recipients, connection, snapshotHash, eligible: reasons.length === 0, reasons };
 }
-export async function outboundPreview(actor: CRMActor, planId: string, recipientIdentifierId?: string, runtime = defaultRuntime) {
+export async function outboundPreview(actor: CRMActor, planId: string, recipientIdentifierId?: string, runtime = defaultRuntime, connectionId?: string) {
   return db.$transaction(async (transaction) => {
-    const state = await snapshot(transaction, actor, planId, recipientIdentifierId, runtime);
+    const state = await snapshot(transaction, actor, planId, recipientIdentifierId, runtime, undefined, connectionId);
     const existing = await transaction.outboundDispatch.findUnique({ where: { planId }, select: publicSelect });
-    return { configured: runtime.enabled(), plan: { id: state.plan.id, purpose: state.plan.purpose, message: state.plan.message, status: state.plan.status, scheduledAt: state.plan.scheduledAt, customer: { fullName: state.plan.customer.fullName } }, recipients: state.recipients.map((item) => ({ id: item.id, number: item.normalizedValue })), selectedRecipientId: state.recipient?.id ?? null, snapshotHash: state.snapshotHash, eligible: state.eligible, reasons: state.reasons, existing };
+    const connections = await transaction.messagingConnection.findMany({ where: { tenantId: actor.tenantId }, select: { id: true, instanceName: true, enabled: true, isDefault: true } });
+    return { configured: runtime.enabled(), connectionId: state.connection?.id ?? null, connections, plan: { id: state.plan.id, purpose: state.plan.purpose, message: state.plan.message, status: state.plan.status, scheduledAt: state.plan.scheduledAt, customer: { fullName: state.plan.customer.fullName } }, recipients: state.recipients.map((item) => ({ id: item.id, number: item.normalizedValue })), selectedRecipientId: state.recipient?.id ?? null, snapshotHash: state.snapshotHash, eligible: state.eligible, reasons: state.reasons, existing };
   });
 }
 export async function requestOutbound(actor: CRMActor, input: z.infer<typeof outboundRequestSchema>, runtime = defaultRuntime) {
@@ -61,7 +65,7 @@ export async function requestOutbound(actor: CRMActor, input: z.infer<typeof out
     const plan = await transaction.relationshipPlan.findFirst({ where: { id: data.planId, tenantId: actor.tenantId } }); if (!plan) throw new NotFoundError();
     await lockMessagingTarget(transaction, actor.tenantId, plan.customerId);
     if (await transaction.outboundDispatch.findUnique({ where: { planId: data.planId } })) throw new ConflictError("Este plano já possui uma solicitação de envio. Consulte seu resultado antes de continuar.");
-    const state = await snapshot(transaction, actor, data.planId, data.recipientIdentifierId, runtime);
+    const state = await snapshot(transaction, actor, data.planId, data.recipientIdentifierId, runtime, undefined, data.connectionId);
     if (state.snapshotHash !== data.snapshotHash) throw new ConflictError("Os dados mudaram. Revise novamente o destinatário e o texto.");
     if (!state.eligible || !state.connection || !state.recipient) throw new ConflictError(`Envio bloqueado: ${state.reasons.join(", ")}`);
     if (await transaction.outboundDispatch.count({ where: { tenantId: actor.tenantId, createdAt: { gt: new Date(Date.now() - 3600_000) } } }) >= 20) throw new ConflictError("O limite de vinte solicitações por hora foi atingido.");
@@ -122,23 +126,31 @@ async function requester(transaction: Prisma.TransactionClient, item: OutboundDi
   const membership = await transaction.membership.findUniqueOrThrow({ where: { id: item.requestedMembershipId } });
   return { tenantId: item.tenantId, context: { tenantId: item.tenantId, userId: item.requestedById, membershipId: membership.id, role: membership.role, accessScope: roleAccessScope[membership.role], capabilities: roleCapabilities[membership.role] } };
 }
-async function finish(transaction: Prisma.TransactionClient, item: OutboundDispatch, claimToken: string, status: "BLOCKED" | "UNCERTAIN" | "ACCEPTED", reasons: string[], providerMessageId?: string) {
-  const changed = await transaction.outboundDispatch.updateMany({ where: { id: item.id, status: "SENDING", claimToken }, data: { status, reasons, version: { increment: 1 }, ...(providerMessageId ? { providerMessageId } : {}), ...(status === "ACCEPTED" ? { acceptedAt: new Date() } : {}) } });
+async function finish(transaction: Prisma.TransactionClient, item: OutboundDispatch, claimToken: string, status: "BLOCKED" | "UNCERTAIN" | "ACCEPTED" | "DEAD_LETTER" | "QUEUED", reasons: string[], providerMessageId?: string) {
+  const changed = await transaction.outboundDispatch.updateMany({ where: { id: item.id, status: "SENDING", claimToken }, data: { status, reasons, version: { increment: 1 }, ...(status === "QUEUED" ? { claimToken: null, startedAt: null, nextAttemptAt: new Date(Date.now() + 1000 * 2 ** Math.min(item.attempts, 8)) } : {}), ...(providerMessageId ? { providerMessageId } : {}), ...(status === "ACCEPTED" ? { acceptedAt: new Date() } : {}) } });
   if (!changed.count) throw new ConflictError("Dispatch claim is no longer current");
-  await recordEvent(transaction, { tenantId: item.tenantId, action: `WHATSAPP_SEND_${status}`, entityType: "OutboundDispatch", entityId: item.id, metadata: { reasons }, idempotencyKey: `outbound-${status.toLowerCase()}:${item.id}` });
+  if (status === "ACCEPTED") {
+    const turn = await transaction.outreachTurn.findUnique({ where: { planId: item.planId } });
+    if (turn) {
+      await transaction.outreachTurn.updateMany({ where: { id: turn.id, status: "READY" }, data: { status: "SENT" } });
+      await transaction.outreachSession.update({ where: { id: turn.sessionId }, data: { lastSentAt: new Date() } });
+    }
+    await transaction.messagingConnection.update({ where: { id: item.connectionId }, data: { lastOutboundAt: new Date() } });
+  }
+  await recordEvent(transaction, { tenantId: item.tenantId, action: `WHATSAPP_SEND_${status}`, entityType: "OutboundDispatch", entityId: item.id, metadata: { reasons }, idempotencyKey: `outbound-${status.toLowerCase()}:${item.id}:${item.attempts}` });
 }
 export async function processOutboundBatch(runtime = defaultRuntime) {
   // Unknown outcomes are never automatically retried, including a crashed worker after the durable claim.
   const stale = await db.outboundDispatch.findMany({ where: { status: "SENDING", startedAt: { lt: new Date(Date.now() - 120_000) } }, take: 10 });
   for (const item of stale) await db.$transaction(async (transaction) => { await lockMessagingTarget(transaction, item.tenantId, item.customerId); const current = await transaction.outboundDispatch.findUniqueOrThrow({ where: { id: item.id } }); if (current.status === "SENDING" && current.claimToken) await finish(transaction, current, current.claimToken, "UNCERTAIN", ["WORKER_INTERRUPTED"]); });
-  const queued = await db.outboundDispatch.findMany({ where: { status: "QUEUED" }, orderBy: { createdAt: "asc" }, take: 5 });
+  const queued = await db.outboundDispatch.findMany({ where: { status: "QUEUED", nextAttemptAt: { lte: new Date() }, connection: { OR: [{ pausedUntil: null }, { pausedUntil: { lte: new Date() } }] } }, orderBy: { createdAt: "asc" }, take: 5 });
   let processed = 0;
   for (const candidate of queued) {
     const claimToken = randomUUID();
     const item = await db.$transaction(async (transaction) => {
       await lockMessagingTarget(transaction, candidate.tenantId, candidate.customerId);
       if (await transaction.outboundDispatch.findFirst({ where: { tenantId: candidate.tenantId, customerId: candidate.customerId, status: { in: ["SENDING", "UNCERTAIN"] }, id: { not: candidate.id } } })) return null;
-      const changed = await transaction.outboundDispatch.updateMany({ where: { id: candidate.id, status: "QUEUED" }, data: { status: "SENDING", claimToken, startedAt: new Date(), version: { increment: 1 } } });
+      const changed = await transaction.outboundDispatch.updateMany({ where: { id: candidate.id, status: "QUEUED" }, data: { status: "SENDING", claimToken, startedAt: new Date(), attempts: { increment: 1 }, version: { increment: 1 } } });
       return changed.count ? transaction.outboundDispatch.findUniqueOrThrow({ where: { id: candidate.id } }) : null;
     });
     if (!item) continue;
@@ -147,13 +159,16 @@ export async function processOutboundBatch(runtime = defaultRuntime) {
       if (!runtime.enabled()) { await db.$transaction((transaction) => finish(transaction, item, claimToken, "BLOCKED", ["OUTBOUND_DISABLED"])); continue; }
       const connection = await db.messagingConnection.findUniqueOrThrow({ where: { id: item.connectionId } });
       const provider = runtime.provider();
-      if (await provider.getConnectionState(connection.instanceName) !== "OPEN") { await db.$transaction((transaction) => finish(transaction, item, claimToken, "BLOCKED", ["CONNECTION_NOT_OPEN"])); continue; }
+      if (await provider.getConnectionState(connection.instanceName) !== "OPEN") { await db.$transaction((transaction) => finish(transaction, item, claimToken, item.attempts >= 5 ? "DEAD_LETTER" : "QUEUED", ["CONNECTION_NOT_OPEN"])); continue; }
       await db.$transaction(async (transaction) => {
         await lockMessagingTarget(transaction, item.tenantId, item.customerId);
+        await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`messaging-send:${item.connectionId}`}, 0))`;
+        const automated = await transaction.outreachTurn.findUnique({ where: { planId: item.planId }, include: { session: true } });
+        if (automated) await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`outreach-campaign:${automated.session.campaignId}`}, 0))`;
         const current = await transaction.outboundDispatch.findUniqueOrThrow({ where: { id: item.id } });
         if (current.status !== "SENDING" || current.claimToken !== claimToken) throw new ConflictError("Dispatch claim lost");
         const actor = await requester(transaction, current);
-        const state = await snapshot(transaction, actor, item.planId, item.recipientIdentifierId, runtime, item.id);
+        const state = await snapshot(transaction, actor, item.planId, item.recipientIdentifierId, runtime, item.id, item.connectionId);
         if (!state.eligible || state.snapshotHash !== item.snapshotHash || state.connection?.id !== item.connectionId || state.connection.instanceName !== connection.instanceName || state.recipient?.normalizedValue !== item.recipient || state.plan.message !== item.message) { await finish(transaction, item, claimToken, "BLOCKED", state.eligible ? ["SOURCE_CHANGED"] : state.reasons); return; }
         sendStarted = true;
         const result = await provider.sendText(connection.instanceName, item.recipient, item.message); providerMessageId = result.providerMessageId;
@@ -161,7 +176,8 @@ export async function processOutboundBatch(runtime = defaultRuntime) {
       }, { timeout: 20_000, maxWait: 10_000 });
     } catch (error) {
       const reason = sendStarted ? "PROVIDER_OUTCOME_UNKNOWN" : error instanceof MessagingProviderUnavailable ? error.code : "ACCESS_OR_SOURCE_REVOKED";
-      await db.$transaction((transaction) => finish(transaction, item, claimToken, sendStarted ? "UNCERTAIN" : "BLOCKED", [reason], providerMessageId)).catch(() => { /* Durable SENDING becomes UNCERTAIN on recovery; never resend. */ });
+      const status = sendStarted ? "UNCERTAIN" : error instanceof MessagingProviderUnavailable ? item.attempts >= 5 ? "DEAD_LETTER" : "QUEUED" : "BLOCKED";
+      await db.$transaction((transaction) => finish(transaction, item, claimToken, status, [reason], providerMessageId)).catch(() => { /* Durable SENDING becomes UNCERTAIN on recovery; never resend. */ });
     }
     processed++;
   }

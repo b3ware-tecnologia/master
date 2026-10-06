@@ -44,7 +44,8 @@ export async function getCRMCase(actor: CRMActor, id: string) {
     const item = await transaction.cRMCase.findFirst({ where: { ...scopedCase(actor), id }, select: { ...caseSelect, description: true, completedAt: true, planId: true, notes: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 50, select: { id: true, body: true, createdAt: true, actor: { select: { name: true } } } }, _count: { select: { notes: true } } } });
     if (!item) throw new NotFoundError();
     const conversation = item.conversationId ? await transaction.conversation.findFirst({ where: { id: item.conversationId, tenantId: actor.tenantId, customerId: item.customerId }, select: { id: true, messages: { orderBy: [{ occurredAt: "desc" }, { id: "desc" }], take: 50, select: { id: true, direction: true, kind: true, text: true, occurredAt: true } }, _count: { select: { messages: true } } } }) : null;
-    return { ...item, conversation };
+    const outreachSession = await transaction.outreachSession.findFirst({ where: { tenantId: actor.tenantId, customerId: item.customerId, campaign: { status: { in: ["ACTIVE", "PAUSED"] } } }, orderBy: { createdAt: "desc" }, select: { id: true, control: true, version: true } });
+    return { ...item, conversation, outreachSession, canResumeAI: !("context" in actor) || actor.context.capabilities.includes("plans.manage") };
   });
 }
 export async function createCRMCase(actor: CRMActor, input: z.infer<typeof createCaseSchema>) {

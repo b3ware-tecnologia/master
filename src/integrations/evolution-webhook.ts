@@ -45,6 +45,7 @@ export type NormalizedWebhookMessage = {
 };
 export type NormalizedWebhook = { instanceName: string } & (
   { type: "messages"; messages: NormalizedWebhookMessage[] } |
+  { type: "deliveries"; deliveries: { providerMessageId: string; state: "SENT" | "DELIVERED" | "READ" | "FAILED"; occurredAt: Date }[] } |
   { type: "connection"; state: "OPEN" | "CLOSED" | "CONNECTING"; occurredAt: Date } |
   { type: "ignored" }
 );
@@ -80,6 +81,22 @@ export function normalizeEvolutionWebhook(value: unknown, now = new Date()): Nor
   const envelope = parsed.data;
   const base = { instanceName: envelope.instance };
   const event = envelope.event.toLowerCase().replaceAll("_", ".");
+  if (event === "messages.update") {
+    const data = Array.isArray(envelope.data) ? envelope.data : [envelope.data];
+    if (data.length > 100) invalid();
+    const occurredAt = envelope.date_time ? new Date(envelope.date_time) : now;
+    if (!Number.isFinite(occurredAt.valueOf()) || occurredAt.valueOf() > now.valueOf() + 300_000) invalid();
+    const states: Record<string, "SENT" | "DELIVERED" | "READ" | "FAILED"> = { SERVER_ACK: "SENT", DELIVERY_ACK: "DELIVERED", READ: "READ", PLAYED: "READ", ERROR: "FAILED", "2": "SENT", "3": "DELIVERED", "4": "READ", "5": "READ", "0": "FAILED" };
+    const deliveries = data.flatMap((raw) => {
+      const item = object(raw); const key = object(item.key); const update = object(item.update);
+      const id = item.keyId ?? key.id;
+      if ((item.fromMe ?? key.fromMe) !== true) return [];
+      if (typeof id !== "string" || !id.length || id.length > 200) invalid();
+      const state = states[String(item.status ?? update.status)];
+      return state ? [{ providerMessageId: id, state, occurredAt }] : [];
+    });
+    return { ...base, type: "deliveries", deliveries };
+  }
   if (event === "connection.update") {
     const state = z.object({ instance: z.string().optional(), state: z.enum(["open", "close", "connecting"]) }).safeParse(envelope.data);
     if (!state.success || (state.data.instance && state.data.instance !== envelope.instance)) invalid();

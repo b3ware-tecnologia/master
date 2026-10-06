@@ -4,6 +4,6 @@ import { apiError } from "@/lib/http";
 import { pairMessagingConnection } from "@/services/messaging-connection-service";
 
 export async function POST(request: NextRequest) {
-  try { return NextResponse.json(await pairMessagingConnection(await contextFromRequest(request)), { headers: { "Cache-Control": "no-store, private" } }); }
+  try { return NextResponse.json(await pairMessagingConnection(await contextFromRequest(request), undefined, request.nextUrl.searchParams.get("connectionId") ?? undefined), { headers: { "Cache-Control": "no-store, private" } }); }
   catch (error) { return apiError(error); }
 }

@@ -3,9 +3,10 @@ import type { AuthorizationContext } from "@/domain/access";
 import { AuthorizationError, NotFoundError } from "@/domain/errors";
 import { db } from "@/lib/db";
 import { requireCapability } from "@/lib/auth/context";
-import { normalizeEvolutionWebhook, verifyWebhookToken, WebhookRequestError } from "@/integrations/evolution-webhook";
+import { normalizeEvolutionWebhook, verifyWebhookToken, WebhookRequestError, type NormalizedWebhook } from "@/integrations/evolution-webhook";
 import { recordEvent } from "@/services/events";
 import { recordObservedContact } from "@/services/observed-contact";
+import { observeOutreachInbound } from "@/services/outreach-inbound";
 
 export async function authenticateEvolutionWebhook(connectionId: string, token: string | null) {
   verifyWebhookToken(connectionId, token);
@@ -16,7 +17,9 @@ export async function authenticateEvolutionWebhook(connectionId: string, token: 
 export async function receiveEvolutionWebhook(connectionId: string, token: string | null, value: unknown) {
   verifyWebhookToken(connectionId, token);
   const event = normalizeEvolutionWebhook(value);
-  return db.$transaction(async (transaction) => {
+  return db.$transaction((transaction) => applyEvolutionWebhook(transaction, connectionId, event), { timeout: 15_000, maxWait: 10_000 });
+}
+export async function applyEvolutionWebhook(transaction: Prisma.TransactionClient, connectionId: string, event: NormalizedWebhook) {
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`messaging-webhook:${connectionId}`}, 0))`;
     const connection = await transaction.messagingConnection.findUnique({ where: { id: connectionId }, include: { tenant: { select: { status: true } } } });
     if (!connection) throw new WebhookRequestError(404, "Webhook binding not found");
@@ -27,6 +30,13 @@ export async function receiveEvolutionWebhook(connectionId: string, token: strin
       // Compare atomically with polling; old callbacks must not replace a fresh state.
       await transaction.messagingConnection.updateMany({ where: { id: connectionId, OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: event.occurredAt } }] }, data: { lastState: event.state, lastCheckedAt: event.occurredAt, lastErrorCode: null } });
       return { accepted: 0, duplicates: 0, ignored: false };
+    }
+    if (event.type === "deliveries") {
+      for (const delivery of event.deliveries) {
+        await transaction.messageDeliveryEvent.upsert({ where: { connectionId_providerMessageId_state: { connectionId, providerMessageId: delivery.providerMessageId, state: delivery.state } }, create: { tenantId: connection.tenantId, connectionId, ...delivery }, update: {} });
+        await reconcileDelivery(transaction, connectionId, delivery.providerMessageId);
+      }
+      return { accepted: event.deliveries.length, duplicates: 0, ignored: false };
     }
     let accepted = 0; let duplicates = 0;
     for (const message of event.messages) {
@@ -41,13 +51,26 @@ export async function receiveEvolutionWebhook(connectionId: string, token: strin
       }
       if (!conversation) conversation = await transaction.conversation.create({ data: { tenantId: connection.tenantId, ...key, customerId, displayName: message.displayName, lastMessageAt: message.occurredAt } });
       else await transaction.conversation.update({ where: { id: conversation.id }, data: { customerId, ...(message.occurredAt >= conversation.lastMessageAt ? { lastMessageAt: message.occurredAt, ...(message.displayName ? { displayName: message.displayName } : {}) } : {}) } });
-      const stored = await transaction.conversationMessage.create({ data: { tenantId: connection.tenantId, connectionId, conversationId: conversation.id, providerMessageId: message.providerMessageId, direction: message.direction, kind: message.kind, text: message.text, occurredAt: message.occurredAt } });
+      const stored = await transaction.conversationMessage.create({ data: { tenantId: connection.tenantId, connectionId, conversationId: conversation.id, providerMessageId: message.providerMessageId, direction: message.direction, kind: message.kind, text: message.text, occurredAt: message.occurredAt, deliveryState: message.direction === "OUTBOUND" ? "SENT" : "RECEIVED" } });
+      if (message.direction === "OUTBOUND") await reconcileDelivery(transaction, connectionId, message.providerMessageId);
+      await transaction.messagingConnection.update({ where: { id: connectionId }, data: message.direction === "INBOUND" ? { lastInboundAt: new Date() } : { lastOutboundAt: new Date() } });
       if (customerId) await recordObservedContact(transaction, connection.tenantId, customerId, message.direction, message.occurredAt);
+      await observeOutreachInbound(transaction, stored, customerId);
       await recordEvent(transaction, { tenantId: connection.tenantId, action: "WHATSAPP_MESSAGE_OBSERVED", entityType: "ConversationMessage", entityId: stored.id, metadata: { conversationId: conversation.id, direction: message.direction, kind: message.kind }, idempotencyKey: `message-observed:${stored.id}` });
       accepted++;
     }
     return { accepted, duplicates, ignored: event.messages.length === 0 };
-  }, { timeout: 15_000, maxWait: 10_000 });
+}
+
+async function reconcileDelivery(transaction: Prisma.TransactionClient, connectionId: string, providerMessageId: string) {
+  const message = await transaction.conversationMessage.findUnique({ where: { connectionId_providerMessageId: { connectionId, providerMessageId } } });
+  if (!message || message.direction !== "OUTBOUND") return;
+  const events = await transaction.messageDeliveryEvent.findMany({ where: { connectionId, providerMessageId }, orderBy: { occurredAt: "asc" } });
+  const readAt = events.find((item) => item.state === "READ")?.occurredAt ?? message.readAt;
+  const deliveredAt = events.find((item) => item.state === "DELIVERED")?.occurredAt ?? message.deliveredAt;
+  const deliveryState = readAt ? "READ" : deliveredAt ? "DELIVERED" : events.some((item) => item.state === "FAILED") ? "FAILED" : "SENT";
+  await transaction.conversationMessage.update({ where: { id: message.id }, data: { deliveryState, deliveredAt, readAt } });
+  if (deliveryState !== message.deliveryState) await recordEvent(transaction, { tenantId: message.tenantId, action: `WHATSAPP_MESSAGE_${deliveryState}`, entityType: "ConversationMessage", entityId: message.id, idempotencyKey: `message-status:${message.id}:${deliveryState}` });
 }
 
 export type ConversationActor = { tenantId: string; context: AuthorizationContext } | { tenantId: string; platformUserId: string };
@@ -76,7 +99,7 @@ export async function getConversation(actor: ConversationActor, conversationId: 
     if (!conversation) throw new NotFoundError();
     const where = { tenantId: actor.tenantId, conversationId };
     const [items, total] = await Promise.all([
-      transaction.conversationMessage.findMany({ where, orderBy: [{ occurredAt: "desc" }, { id: "desc" }], take: 50, skip: (page - 1) * 50, select: { id: true, direction: true, kind: true, text: true, occurredAt: true } }),
+      transaction.conversationMessage.findMany({ where, orderBy: [{ occurredAt: "desc" }, { id: "desc" }], take: 50, skip: (page - 1) * 50, select: { id: true, direction: true, kind: true, text: true, occurredAt: true, deliveryState: true, deliveredAt: true, readAt: true } }),
       transaction.conversationMessage.count({ where }),
     ]);
     return { conversation, items, total, page, pageSize: 50 };

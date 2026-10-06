@@ -28,7 +28,7 @@ async function main() {
   assert.equal(await db.messagingConnection.count(), 1);
   assert.equal(await db.auditEvent.count({ where: { action: "MESSAGING_CONNECTION_REGISTERED" } }), 1);
   await assert.rejects(registerEvolutionConnection(admin.id, { tenantId: foreign.id, instanceName: input.instanceName }), ConflictError);
-  assert.equal(await getMessagingConnection({ ...context, tenantId: foreign.id }), null);
+  await assert.rejects(getMessagingConnection({ ...context, tenantId: foreign.id }), AuthorizationError);
   const seen: string[] = [];
   const open = await checkMessagingConnection(context, { name: "ACCEPTANCE_STUB", getConnectionState: async (instance) => { seen.push(instance); return "OPEN"; } });
   assert.equal(open.lastState, "OPEN"); assert.equal(open.lastErrorCode, null); assert(open.lastCheckedAt);
@@ -49,9 +49,9 @@ async function main() {
   await assert.rejects(pairMessagingConnection({ ...context, tenantId: foreign.id }, pairingProvider), AuthorizationError);
   await assert.rejects(pairMessagingConnection({ ...context, role: "CONSULTANT", capabilities: roleCapabilities.CONSULTANT }, pairingProvider), AuthorizationError);
   await assert.rejects(provisionEvolutionConnection(master.id, { tenantId: foreign.id, instanceName: "forbidden_creation" }, pairingProvider), AuthorizationError);
-  await db.messagingConnection.update({ where: { tenantId: tenant.id }, data: { enabled: false } });
+  await db.messagingConnection.updateMany({ where: { tenantId: tenant.id }, data: { enabled: false } });
   await assert.rejects(pairMessagingConnection(context, pairingProvider), ConflictError);
-  await db.messagingConnection.update({ where: { tenantId: tenant.id }, data: { enabled: true } });
+  await db.messagingConnection.updateMany({ where: { tenantId: tenant.id }, data: { enabled: true } });
   await db.membership.update({ where: { id: membership.id }, data: { status: "SUSPENDED" } });
   await assert.rejects(pairMessagingConnection(context, pairingProvider), AuthorizationError);
   await db.membership.update({ where: { id: membership.id }, data: { status: "ACTIVE" } });

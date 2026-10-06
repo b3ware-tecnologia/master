@@ -80,7 +80,7 @@ export class EvolutionProvider implements WebhookMessagingProvider, SendingMessa
     this.validateInstance(instanceName);
     const destination = new URL(url);
     if (destination.protocol !== "https:" || destination.username || destination.password || destination.search || destination.hash || !/^[a-f0-9]{64}$/.test(token)) throw new MessagingProviderUnavailable("NOT_CONFIGURED");
-    const events = ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "SEND_MESSAGE"];
+    const events = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "SEND_MESSAGE"];
     await this.request(`/webhook/set/${encodeURIComponent(instanceName)}`, "POST", { webhook: { enabled: true, url, headers: { "x-bm-webhook-token": token }, byEvents: false, base64: false, events } });
     const readback = await this.request(`/webhook/find/${encodeURIComponent(instanceName)}`);
     try {

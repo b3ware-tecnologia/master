@@ -68,7 +68,8 @@ async function main() {
     if (mutation === "membership") await db.membership.update({ where: { id: membership.id }, data: { status: "SUSPENDED" } });
     if (mutation === "offline") open = false;
     await processOutboundBatch(mutation === "disabled" ? { ...runtime, enabled: () => false } : runtime);
-    assert.equal(calls, before, mutation); assert.equal((await db.outboundDispatch.findUniqueOrThrow({ where: { id: queued.id } })).status, "BLOCKED", mutation);
+    assert.equal(calls, before, mutation); assert.equal((await db.outboundDispatch.findUniqueOrThrow({ where: { id: queued.id } })).status, mutation === "offline" ? "QUEUED" : "BLOCKED", mutation);
+    if (mutation === "offline") await cancelOutbound(actor, queued.id, (await db.outboundDispatch.findUniqueOrThrow({ where: { id: queued.id } })).version);
     await db.membership.update({ where: { id: membership.id }, data: { role: "TENANT_MASTER", status: "ACTIVE" } }); await db.user.update({ where: { id: user.id }, data: { status: "ACTIVE" } });
     await db.messagingConnection.update({ where: { id: connection.id }, data: { enabled: true } }); await saveMessagingPolicy(actor, policy); open = true;
   }

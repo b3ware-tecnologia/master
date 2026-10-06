@@ -12,7 +12,7 @@ export async function outboundHttp(request: NextRequest, platform: boolean, oper
     const actor = await conversationActor(request, platform); let result: unknown;
     switch (operation) {
       case "list": result = await listOutbound(actor); break;
-      case "preview": result = await outboundPreview(actor, z.string().min(1).max(100).parse(request.nextUrl.searchParams.get("planId")), request.nextUrl.searchParams.get("recipientIdentifierId") ?? undefined); break;
+      case "preview": result = await outboundPreview(actor, z.string().min(1).max(100).parse(request.nextUrl.searchParams.get("planId")), request.nextUrl.searchParams.get("recipientIdentifierId") ?? undefined, undefined, request.nextUrl.searchParams.get("connectionId") ?? undefined); break;
       case "request": result = await requestOutbound(actor, outboundRequestSchema.parse(await request.json())); break;
       case "detail": result = await outboundDetail(actor, id!); break;
       case "cancel": result = await cancelOutbound(actor, id!, outboundCancelSchema.parse(await request.json()).expectedVersion); break;
