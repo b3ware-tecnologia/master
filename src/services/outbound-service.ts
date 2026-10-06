@@ -40,6 +40,7 @@ async function snapshot(transaction: Prisma.TransactionClient, actor: CRMActor, 
   if (plan.channel !== "WHATSAPP") reasons.push("UNSUPPORTED_CHANNEL");
   if (!recipient && recipients.length > 1) reasons.push("SELECT_RECIPIENT");
   if (!connection?.enabled) reasons.push("CONNECTION_REQUIRED");
+  if (connection?.pausedUntil && connection.pausedUntil > new Date()) reasons.push("CONNECTION_PAUSED");
   if (!runtime.enabled()) reasons.push("OUTBOUND_DISABLED");
   if (!runtime.configured()) reasons.push("PROVIDER_REQUIRED");
   if (pending) reasons.push("OTHER_ATTEMPT_UNCONFIRMED");
@@ -184,6 +185,7 @@ export async function processOutboundBatch(runtime = defaultRuntime) {
         if (current.status !== "SENDING" || current.claimToken !== claimToken) throw new ConflictError("Dispatch claim lost");
         const actor = await requester(transaction, current);
         const state = await snapshot(transaction, actor, item.planId, item.recipientIdentifierId, runtime, item.id, item.connectionId);
+        if (state.reasons.length === 1 && state.reasons[0] === "CONNECTION_PAUSED") { await finish(transaction, item, claimToken, item.attempts >= 5 ? "DEAD_LETTER" : "QUEUED", state.reasons); return; }
         if (!state.eligible || state.snapshotHash !== item.snapshotHash || state.connection?.id !== item.connectionId || state.connection.instanceName !== connection.instanceName || state.recipient?.normalizedValue !== item.recipient || state.plan.message !== item.message) { await finish(transaction, item, claimToken, "BLOCKED", state.eligible ? ["SOURCE_CHANGED"] : state.reasons); return; }
         sendStarted = true;
         const result = await provider.sendText(connection.instanceName, item.recipient, item.message); providerMessageId = result.providerMessageId;
