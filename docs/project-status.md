@@ -2,6 +2,10 @@
 
 O fluxo da arquitetura tem mecanismos implementados: importação → Customer 360 → planejamento de relacionamento → governança → WhatsApp/Evolution → análise de IA revisada → CRM → distribuição → trabalho do consultor. A continuidade inclui fila de envio governada, visão operacional, gestão de acesso/equipes e downloads privados de anexos. Implementação, homologação e operação real têm evidências distintas.
 
+**Requisito central esclarecido pelo usuário:** a IA deve iniciar as conversas e conduzir o relacionamento dentro de um planejamento autorizado, com encaminhamento ao consultor. Esse fluxo proativo ainda falta; a análise manual atual não o substitui. Veja [IA proativa de relacionamento](architecture/proactive-ai.md). Ele passa a ser a prioridade funcional da continuidade.
+
+**Roteiro original recuperado:** o chat `Execute Phase 0 do bmcredito/master` e seus 11 anexos foram identificados como a provável referência original pelo usuário. A [reconciliação com o código](architecture/original-project-reconciliation.md) registra a numeração original, a cobertura parcial da infraestrutura de mensagens e as lacunas de múltiplas conexões, entrada em fila, entrega/leitura, saúde e recuperação. A numeração 3–12 desta continuação não corresponde integralmente ao roteiro original. Não considerar as fases originais aceitas por equivalência de nomes.
+
 | Área | Mecanismo | Limite atual |
 | --- | --- | --- |
 | Fundação e acesso | Sessões, capacidades, vínculos por empresa, seletor, proteção do último master | Contas globais já ativas não entram em outra empresa por convite novo; falta aceite autenticado específico |
