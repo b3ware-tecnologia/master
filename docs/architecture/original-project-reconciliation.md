@@ -57,6 +57,8 @@ A exigência de a IA iniciar o contato vem explicitamente da reafirmação atual
 
 ## Continuidade alinhada
 
+Atualização posterior à auditoria: os mecanismos de múltiplas conexões, entrada durável, entrega/leitura, saúde, recuperação e IA proativa foram implementados e testados na [entrega de continuidade](messaging-proactive-seleta.md). A tabela acima conserva a auditoria histórica de `9b94362`; não descreve o código novo. As provas e limitações restantes constam no documento da entrega, sem declarar aceitação integral das fases originais.
+
 1. Consolidar a base original de mensagens: múltiplas conexões, entrada durável em fila, estados/recibos, saúde/pausas e recuperação de falhas sem duplicação.
 2. Integrar a governança técnica e comercial ao planejamento autorizado de relacionamento.
 3. Implementar a iniciativa da IA, geração contextual, execução persistida, continuidade da conversa e transferência de controle para consultor. A análise manual existente permanece auxiliar.

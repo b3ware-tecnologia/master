@@ -2,7 +2,7 @@
 
 ## Requisito de produto
 
-Em 2026-10-05 o usuário reafirmou que a IA é ativa e deve iniciar as conversas com os clientes. A [recuperação do chat original](original-project-reconciliation.md) encontrou menções a campanhas automáticas, follow-up autônomo e agente conversacional como funcionalidades fora do escopo da infraestrutura da fase 3, sem recuperar a especificação completa das futuras fases de IA. A análise manual de mensagens da fase 6 desta continuação não satisfaz o requisito reafirmado. Este documento registra o comportamento esperado; o mecanismo proativo ainda não foi implementado.
+Em 2026-10-05 o usuário reafirmou que a IA é ativa e deve iniciar as conversas com os clientes. A [recuperação do chat original](original-project-reconciliation.md) encontrou menções a campanhas automáticas, follow-up autônomo e agente conversacional como funcionalidades fora do escopo da infraestrutura da fase 3, sem recuperar a especificação completa das futuras fases de IA. A análise manual de mensagens da fase 6 desta continuação é auxiliar. A implementação proativa e suas provas estão em [continuidade de mensagens, IA e frontend](messaging-proactive-seleta.md).
 
 O fluxo alvo é: planejamento autorizado de relacionamento → seleção de clientes elegíveis → abordagem contextual gerada pela IA → validação determinística → envio pelo WhatsApp → continuidade da conversa → encaminhamento ao consultor e registro no CRM.
 
@@ -19,6 +19,10 @@ A operação humana define o público, o objetivo e os limites do planejamento. 
 
 ## Estado e ativação
 
-Os componentes existentes de planejamento, governança, Evolution, histórico, fila de envio e CRM são a base. Faltam a autorização específica da automação, o gerador de abordagem, a orquestração proativa e a continuidade com transferência de controle.
+Campanhas, autorização persistida do público/objetivo/limites, gerador de abordagem, execução pelo worker e transferência de controle estão implementados. O primeiro contato não depende de mensagem anterior do cliente. A autorização congela a inclusão do público pela data de criação da associação à lista. Para alterar objetivo, lista, conexão ou limites, crie outra campanha; autorizar uma retomada permite o público existente nessa nova data. Conversas são vinculadas pela conexão e pelo cliente da empresa.
+
+`AI_OUTREACH_ENABLED`, `WHATSAPP_OUTBOUND_ENABLED` e a chave OpenAI são necessários para gerar e enviar. A mesma política de horário, consentimento e intervalo dos envios manuais se aplica. O worker revalida a autorização atual, a vigência, o controle AI e o contexto antes da geração, antes da fila e antes do POST. Limites: 1–20 novos contatos/dia por campanha, 1–12 mensagens por cliente, 20 gerações por empresa/hora e a reserva existente de 20 envios/hora. Há no máximo um follow-up por sessão, opcional, após 24–168 horas sem resposta.
+
+Recusa explícita cancela a fila e registra OPTED_OUT sem depender do modelo. Pedido de pessoa ou mídia pausa a assistente e abre atendimento no CRM por meio do serviço autorizado compartilhado. Consultores só assumem clientes do próprio escopo; devolver à IA exige permissão de planejamento. Uma resposta financeira exige encaminhamento humano; não há aprovação de crédito, cálculo, OCR ou transcrição.
 
 A ausência de `OPENAI_API_KEY` e o bloqueio de envios reais continuam conforme a decisão anterior do usuário. Acrescentar a chave não cria este mecanismo. Implementação, testes com transportes simulados e operação com clientes reais devem ser comprovados separadamente.

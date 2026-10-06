@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { requirePlatformAdmin } from "@/lib/auth/context";
 import { db } from "@/lib/db";
 import { OutboundBoard } from "@/components/outbound-board";
@@ -6,5 +5,5 @@ export default async function PlatformOutboxPage({ searchParams }: { searchParam
   await requirePlatformAdmin(); const query = await searchParams;
   const tenants = await db.tenant.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { name: "asc" } });
   const selected = tenants.find((tenant) => tenant.id === query.tenantId);
-  return <div className="content"><Link href="/platform">← Administração da plataforma</Link><h1>Envios WhatsApp</h1><form className="form" action="/platform/whatsapp-outbox"><label>Empresa<select name="tenantId" defaultValue={selected?.id ?? ""}><option value="">Selecione</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></label><button>Abrir envios</button></form>{selected && <><h2>{selected.name}</h2><OutboundBoard key={selected.id} tenantId={selected.id} platform /></>}</div>;
+  return <div className="content"><h1>Envios WhatsApp</h1>{!selected && <section className="card"><p>Selecione a empresa no menu lateral para abrir esta área.</p></section>}{selected && <><OutboundBoard key={selected.id} tenantId={selected.id} platform /></>}</div>;
 }

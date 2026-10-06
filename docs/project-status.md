@@ -2,7 +2,7 @@
 
 O fluxo da arquitetura tem mecanismos implementados: importação → Customer 360 → planejamento de relacionamento → governança → WhatsApp/Evolution → análise de IA revisada → CRM → distribuição → trabalho do consultor. A continuidade inclui fila de envio governada, visão operacional, gestão de acesso/equipes e downloads privados de anexos. Implementação, homologação e operação real têm evidências distintas.
 
-**Requisito central esclarecido pelo usuário:** a IA deve iniciar as conversas e conduzir o relacionamento dentro de um planejamento autorizado, com encaminhamento ao consultor. Esse fluxo proativo ainda falta; a análise manual atual não o substitui. Veja [IA proativa de relacionamento](architecture/proactive-ai.md). Ele passa a ser a prioridade funcional da continuidade.
+**Requisito central esclarecido pelo usuário:** a IA inicia as conversas e conduz o relacionamento dentro de uma campanha autorizada, com encaminhamento ao consultor. O mecanismo proativo foi implementado e validado com transportes simulados; chave/ativação e aceitação conversacional reais continuam pendentes. Veja [continuidade de mensagens, IA e frontend Seleta](architecture/messaging-proactive-seleta.md).
 
 **Roteiro original recuperado:** o chat `Execute Phase 0 do bmcredito/master` e seus 11 anexos foram identificados como a provável referência original pelo usuário. A [reconciliação com o código](architecture/original-project-reconciliation.md) registra a numeração original, a cobertura parcial da infraestrutura de mensagens e as lacunas de múltiplas conexões, entrada em fila, entrega/leitura, saúde e recuperação. A numeração 3–12 desta continuação não corresponde integralmente ao roteiro original. Não considerar as fases originais aceitas por equivalência de nomes.
 
@@ -12,8 +12,8 @@ O fluxo da arquitetura tem mecanismos implementados: importação → Customer 3
 | Importação | CSV/XLSX, confirmação, processamento por linhas, deduplicação, retry/DLQ e posse protegida | Reprocessamento administrativo de DLQ ainda depende de operação controlada |
 | Customer 360 | Identificadores, fatos com origem/verificação, listas, tags e histórico | Dados importados exigem revisão de qualidade; não equivalem a dados verificados |
 | Relacionamento/governança | Planos revisados/aprovados, consentimento, janela de contato e cooldown | Agendamento não é confirmação de envio ou lembrete automático |
-| WhatsApp | Evolution 2.3.7, conexão/QR, webhook autenticado, deduplicação e histórico | Retenção e logs brutos do provedor precisam de tratamento antes de produção |
-| IA | Fila, limite, fingerprint, análise estruturada e nota após revisão humana | Sem chave por decisão do usuário; avaliação com modelo real pendente |
+| WhatsApp | Evolution 2.3.7, várias conexões, webhook em fila, saúde/circuito, entrega/leitura e DLQ | Retenção e logs brutos do provedor precisam de tratamento antes de produção; recibos reais ainda precisam de aceitação |
+| IA | Campanhas proativas, abordagem/resposta/follow-up, autorização, controle humano, limites e análise auxiliar | Sem chave e sem ativação por decisão do usuário; avaliação com modelo real pendente |
 | CRM e distribuição | Clientes/conversas vinculados, etapas, notas, retornos, equipes e responsáveis | Não representa simulação bancária, formalização de contrato ou integração com bancos |
 | Envios | Revisão de número/texto, confirmação, revalidação, fila e resultado incerto sem retry | Flag desativada; envio real autorizado e sua comprovação continuam pendentes |
 | Operação | Indicadores, retornos prioritários, busca e filtros por perfil | Períodos móveis; não inclui relatórios financeiros ou alertas automáticos |
@@ -28,7 +28,7 @@ O fluxo da arquitetura tem mecanismos implementados: importação → Customer 3
 4. Resolver retenção/redação dos logs e dados do Evolution, política de dados do CRM, backup/restauração e a configuração independente de produção.
 5. Concluir revisão/integração no repositório original e observar CI e a versão efetivamente publicada. Não há permissão de escrita na branch estável original nesta sessão.
 
-Extensões de produto ainda sem mecanismo: aceite autenticado para ingresso de uma conta existente em outra empresa; transporte de e-mail; mídia/OCR/transcrição com IA; recibos/edição/exclusão de mensagens; exportação/portabilidade; alertas de retornos; relatórios comerciais; e integrações financeiras. Esses itens não devem ser apresentados como concluídos.
+Extensões de produto ainda sem mecanismo: aceite autenticado para ingresso de uma conta existente em outra empresa; transporte de e-mail; mídia/OCR/transcrição com IA; edição/exclusão de mensagens; exportação/portabilidade; alertas de retornos; relatórios comerciais; e integrações financeiras. Esses itens não devem ser apresentados como concluídos.
 
 As fases 0–10 têm documentos históricos em `docs/architecture`. O comportamento mais recente está em [operações e anexos](architecture/phase-11-12-operations-media.md). Homologação com dados fictícios não comprova que produção ou um atendimento real estão prontos.
 
