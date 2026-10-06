@@ -14,7 +14,7 @@ Esta entrega atende à instrução de concluir as lacunas recuperadas e usar a i
 
 ## Prova de implementação
 
-Código funcional: `b5e3b0e`, `c97ab54`, `6fe2c6f`. Migration `20261006020000_messaging_proactive_ai`, 14 migrations no total.
+Código funcional publicado: `466975e`, incluindo `b5e3b0e`, `c97ab54`, `6fe2c6f` e a revalidação final da pausa da conexão antes do transporte. Migration `20261006020000_messaging_proactive_ai`, 14 migrations no total.
 
 Passaram 89 testes unitários, com dois testes de conexão local ignorados, lint, TypeScript e build. A aceitação `scripts/phase-13-acceptance.ts` usa PostgreSQL real em schema descartável criado pelo runner; transportes de geração, saúde e envio são simulados. Nenhuma chamada real de OpenAI ou envio WhatsApp ocorre nesse harness.
 
@@ -35,3 +35,16 @@ Carga de entrada em lote, incluindo gravação/processamento/eventos, em banco d
 Não declarar a fase 3 original integralmente aceita: continuam independentes o tratamento dos logs/retenção do Evolution, política de dados, backup/restauração, CI/merge no repositório original e ambiente de produção. Serialização conservadora também usa a trava de política por empresa durante o envio; paralelismo máximo entre conexões não é uma promessa desta entrega. O teste de recuperação de recibo reproduz lease interrompido, sem alegar SIGKILL de um worker de mensagens.
 
 Aceite autenticado para ingressar com uma conta já existente, portabilidade, e-mail, relatórios financeiros, alertas externos e integrações bancárias não foram inventados como fases recuperadas. As funcionalidades financeiras dependem de contratos e regras ainda não fornecidos.
+
+## Publicação verificada — 2026-10-05 (Brasília)
+
+- Código de WEB e WORKER: `466975ec9c9f4c93b660e0098ed0bf5a9e0e8db1`.
+- WEB-STAGING: deployment `f94a9f80-61a7-4d73-9041-306094c55a8e`, `SUCCESS`.
+- WORKER-STAGING: deployment `1abbf223-7bb3-4538-8f95-e805110f9499`, `SUCCESS`; eventos `postgres_connected`, `redis_connected` e `worker_started` observados.
+- Quatorze migrations públicas concluídas. SHA-256 de 48 arquivos principais em cada serviço correspondeu ao código local, após normalização de newline. `/health` e `/ready` retornaram 200.
+- A conexão real `bm_credito_staging` permaneceu `open`, habilitada e com uma conexão principal. URL, HMAC, opções e quatro eventos do webhook foram conferidos: `MESSAGES_UPSERT`, `MESSAGES_UPDATE`, `CONNECTION_UPDATE`, `SEND_MESSAGE`. Configuração não enviou mensagem.
+- `LIVE_HTTP_ACCEPTANCE=true pnpm exec tsx scripts/phase-13-http-acceptance.ts` passou na aplicação publicada: autenticação, papéis, isolamento entre empresas, revogação, campanha idempotente com autorização explícita, configuração desativada, páginas autenticadas, webhook durável processado pelo WORKER publicado, deduplicação e métricas. Fixtures temporárias removidas; zero chamadas OpenAI e zero envios reais.
+- A aceitação isolada final repetiu os controles após o ajuste de pausa da conexão. Os cenários de carga não foram repetidos nessa rodada porque o processamento em lote não mudou; a tabela anterior registra a carga efetivamente executada.
+- Navegador autenticado conferiu CRM, indicadores reais da empresa de demonstração, formulário de campanhas, aviso de ativação pendente e navegação. Em tela móvel de 390 × 844, não houve overflow horizontal nas páginas de campanhas/operação; menu abriu e a navegação preservou a empresa. Tamanho original restaurado. Capturas privadas em `.private/proactive-seleta-frontend.png` e `.private/proactive-seleta-mobile.png`, fora do Git.
+- `OPENAI_API_KEY` ausente e flags de IA proativa/envio desativadas em ambos os serviços, conforme decisão do usuário. Os testes com gerador/transporte simulados comprovam o mecanismo, não qualidade do modelo ou envio/entrega/leitura reais.
+- [PR cumulativo #14](https://github.com/bmcredito/master/pull/14) permanece draft. GitHub não reportou checks; os resultados locais e Railway não representam CI GitHub. Branch estável original e produção não foram promovidas.
