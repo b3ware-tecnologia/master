@@ -13,8 +13,11 @@ export async function enqueueEvolutionWebhook(connectionId: string, token: strin
   if (event.type === "ignored") return { queued: false, ignored: true };
   // Persist only normalized fields: provider credentials, media URLs and binary data never enter the queue.
   const payload = JSON.parse(JSON.stringify(event)) as Prisma.InputJsonValue;
-  const eventKey = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
-  const receipt = await db.messagingReceipt.upsert({ where: { connectionId_eventKey: { connectionId, eventKey } }, create: { tenantId: connection.tenantId, connectionId, eventKey, kind: event.type, payload }, update: {}, select: { id: true, status: true } });
+  const identity = event.type === "deliveries" ? { instanceName: event.instanceName, type: event.type, deliveries: event.deliveries.map(({ providerMessageId, state }) => ({ providerMessageId, state })) } : payload;
+  const eventKey = createHash("sha256").update(JSON.stringify(identity)).digest("hex");
+  // Prisma's emulated empty-update upsert can race. INSERT ... ON CONFLICT is atomic across replicas.
+  await db.messagingReceipt.createMany({ data: [{ id: randomUUID(), tenantId: connection.tenantId, connectionId, eventKey, kind: event.type, payload }], skipDuplicates: true });
+  const receipt = await db.messagingReceipt.findUniqueOrThrow({ where: { connectionId_eventKey: { connectionId, eventKey } }, select: { id: true, status: true } });
   return { queued: true, ignored: false, receiptId: receipt.id, status: receipt.status };
 }
 function decode(payload: Prisma.JsonValue): NormalizedWebhook {
