@@ -20,7 +20,7 @@ O simulador aceita primeira abordagem sem mensagem recebida e resposta a uma men
 
 Para atualizar os arquivos depois de alterar o prompt, execute `pnpm exec tsx scripts/prepare-vanessa-tests.ts`. Esse comando não chama a OpenAI nem envia mensagens.
 
-## Como testar pela interface após publicar esta versão
+## Como testar pela interface
 
 1. Acesse a área Comercial com permissão para gerenciar estratégias. Na visão de plataforma, selecione a empresa de teste.
 2. Em Estratégias, crie, revise e aprove uma estratégia fictícia com objetivo de conversar sobre consignado sem prometer condições.
@@ -50,6 +50,6 @@ Identificador da aceitação: `phase14_acceptance_c68a4b3d16c1412d94fe366f3d2776
 
 ## Pendências explícitas
 
-Esta alteração está no checkout local; não foi publicada em WEB/WORKER. A aprovação da naturalidade das falas depende de executar os 16 cenários com o modelo real. O simulador ainda não recebeu conferência visual autenticada no navegador nesta alteração.
+Esta alteração foi publicada em WEB/WORKER na homologação em 09/10/2026, com conferência visual autenticada em desktop e celular e registro de teste pela interface. Veja o [acesso e as evidências da versão](versao-homologacao-20261009.md). A aprovação da naturalidade das falas ainda depende de executar os 16 cenários com o modelo real.
 
 O chat web para clientes ainda é uma proposta de arquitetura, não uma função disponível. O prompt não inventa links nem promete recuperar mensagens de um número indisponível. Veja [continuidade pelo chat web](../architecture/web-chat-continuity.md). Preparar este prompt não conclui todas as funcionalidades da especificação do produto.
