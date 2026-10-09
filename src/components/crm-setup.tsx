@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 type Setup = { teams: { id: string; name: string }[]; members: { id: string; role: string; status: string; user: { name: string; email: string } }[] };
-const roles: Record<string, string> = { TENANT_MASTER: "Administrador da empresa", TENANT_MANAGER: "Gestor de equipe", CONSULTANT: "Consultor" };
+const roles: Record<string, string> = { TENANT_MASTER: "Administrador da empresa", TENANT_MANAGER: "Gestor de equipe", VIEWER: "Somente leitura", CONSULTANT: "Consultor" };
 export function CRMSetupPanel({ base, query, onChanged }: { base: string; query: string; onChanged: () => void }) {
   const [data, setData] = useState<Setup>({ teams: [], members: [] }); const [refresh, setRefresh] = useState(0);
   const [teamName, setTeamName] = useState(""); const [teamId, setTeamId] = useState(""); const [membershipId, setMembershipId] = useState("");

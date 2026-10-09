@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { syntheticPlaybook } from "./fixtures/commercial";
+import { createPlaybook, changePlaybook } from "@/services/commercial-service";
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import { roleCapabilities, type AuthorizationContext } from "@/domain/access";
@@ -55,12 +57,15 @@ async function main() {
   const list = await db.customerList.create({ data: { tenantId: tenant.id, name: "Synthetic authorized audience" } }); let sequence = 0;
   async function customer(consent: "OPTED_IN" | "OPTED_OUT" | "UNKNOWN" = "OPTED_IN") { const value = await db.customer.create({ data: { tenantId: tenant.id, fullName: `Synthetic ${++sequence}`, displayName: `Synthetic ${sequence}` } }); await db.customerIdentifier.create({ data: { tenantId: tenant.id, customerId: value.id, type: "PHONE", verification: "CONFIRMED", normalizedValue: `1555555${String(sequence).padStart(4, "0")}` } }); await db.customerListMember.create({ data: { tenantId: tenant.id, customerId: value.id, listId: list.id } }); await saveCommunicationPreference(actor, value.id, { channel: "WHATSAPP", consent, evidence: "Synthetic isolated evidence only" }); return value; }
   const target = await customer(); await customer("OPTED_OUT"); await customer("UNKNOWN");
-  const campaignInput = { requestKey: randomUUID(), name: "Synthetic proactive", objective: "Entender interesse e encaminhar à equipe.", listId: list.id, connectionId: connection.id, maxContactsPerDay: 1, maxTurns: 3, startsAt: new Date(Date.now() - 1000).toISOString(), endsAt: new Date(Date.now() + 86400_000).toISOString(), followUpHours: 24 };
+  let playbook = await createPlaybook(actor, { name: "Synthetic strategy", instruction: "Converse de forma cordial e encaminhe sem prometer crédito." });
+  playbook = await changePlaybook(actor, playbook.id, { action: "edit", expectedVersion: playbook.version, instruction: playbook.instruction, interpretation: syntheticPlaybook });
+  playbook = await changePlaybook(actor, playbook.id, { action: "approve", expectedVersion: playbook.version, confirmed: true });
+  const campaignInput = { playbookId: playbook.id, requestKey: randomUUID(), name: "Synthetic proactive", objective: "Entender interesse e encaminhar à equipe.", listId: list.id, connectionId: connection.id, maxContactsPerDay: 1, maxTurns: 3, startsAt: new Date(Date.now() - 1000).toISOString(), endsAt: new Date(Date.now() + 86400_000).toISOString(), followUpHours: 24 };
   const duplicateCampaign = await Promise.all([createOutreachCampaign(actor, campaignInput), createOutreachCampaign(actor, campaignInput)]); assert.equal(duplicateCampaign[0].id, duplicateCampaign[1].id);
   await assert.rejects(createOutreachCampaign(actor, { ...campaignInput, objective: "Changed objective invalidates same key" }));
   await assert.rejects(changeOutreachCampaign(actor, duplicateCampaign[0].id, { action: "authorize", expectedVersion: 0 }));
   await assert.rejects(listOutreach({ ...actor, context: { ...context, role: "CONSULTANT", capabilities: roleCapabilities.CONSULTANT, accessScope: "ASSIGNED" } }), AuthorizationError);
-  let generated = 0; const generator: typeof generateOutreach = async (input) => { generated++; return { result: { message: input.stage === "INITIAL" ? "Olá! Sou a assistente virtual da BM Crédito. Podemos conversar?" : "Obrigado! Qual necessidade você gostaria de conversar com a equipe?", intent: input.stage === "INITIAL" ? "INTRODUCTION" : "QUESTION", nextStep: "CONTINUE", evidenceIds: input.messages.slice(-1).map((item) => item.id) }, inputTokens: 100, outputTokens: 40 }; };
+  let generated = 0; const generator: typeof generateOutreach = async (input) => { generated++; return { result: { message: input.stage === "INITIAL" ? "Oi, sou a Vanessa da BM Crédito. Você tem um tempinho para conversar?" : "Obrigado! Qual necessidade você gostaria de conversar com a equipe?", intent: input.stage === "INITIAL" ? "INTRODUCTION" : "QUESTION", nextStep: "CONTINUE", evidenceIds: input.messages.slice(-1).map((item) => item.id) }, inputTokens: 100, outputTokens: 40 }; };
   await processOutreachBatch(generator); assert.equal(generated, 0); await changeOutreachCampaign(actor, duplicateCampaign[0].id, { action: "authorize", expectedVersion: 0, confirmed: true });
   await customer(); // Added after authorization: outside the frozen audience.
   await Promise.all([processOutreachBatch(generator), processOutreachBatch(generator)]); assert.equal(generated, 1); assert.equal(await db.outreachSession.count(), 1); const session = await db.outreachSession.findFirstOrThrow(); assert.equal(session.customerId, target.id);
@@ -111,3 +116,4 @@ async function main() {
   console.log(`PHASE_13_ACCEPTANCE_JSON=${JSON.stringify({ result: "PASS", provider: "SIMULATED", realOutboundCalls: 0, realOpenAICalls: 0, simulatedSends: sends, load: results })}`);
 }
 void main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => db.$disconnect());
+

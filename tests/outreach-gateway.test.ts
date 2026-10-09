@@ -2,12 +2,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateOutreach, validateOutreachResult } from "@/integrations/outreach-gateway";
 import { normalizeEvolutionWebhook } from "@/integrations/evolution-webhook";
 const input = { objective: "Entender interesse e encaminhar à equipe.", stage: "INITIAL", customer: { firstName: "Pessoa", facts: [] }, messages: [] };
-const result = { message: "Olá! Sou a assistente virtual da BM Crédito. Podemos conversar?", intent: "INTRODUCTION", nextStep: "CONTINUE", evidenceIds: [] };
+const result = { message: "Oi, sou a Vanessa da BM Crédito. Você tem um tempinho para conversar?", intent: "INTRODUCTION", nextStep: "CONTINUE", evidenceIds: [] };
 afterEach(() => vi.unstubAllEnvs());
 describe("Proactive gateway and delivery receipts", () => {
   it("makes no call before configuration", async () => { vi.stubEnv("OPENAI_API_KEY", ""); const fetcher = vi.fn(); await expect(generateOutreach(input, fetcher)).rejects.toMatchObject({ code: "NOT_CONFIGURED" }); expect(fetcher).not.toHaveBeenCalled(); });
   it("uses Responses with strict output and preserves model policy", async () => { vi.stubEnv("OPENAI_API_KEY", "synthetic"); const fetcher = vi.fn(async (_url: unknown, options: RequestInit | undefined) => { const body = JSON.parse(String(options?.body)); expect(body.model).toBe("gpt-6-luna"); expect(body.store).toBe(false); expect(body.tools).toBeUndefined(); expect(body.text.format.strict).toBe(true); return Response.json({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(result) }] }], usage: { input_tokens: 100, output_tokens: 50 } }); }); expect((await generateOutreach(input, fetcher)).result).toEqual(result); });
-  it.each([{ ...result, evidenceIds: ["foreign"] }, { ...result, message: "Seu crédito está aprovado." }, { ...result, message: "Taxa de 1% disponível." }, { ...result, message: "Seu CPF é 123.456.789-01" }, { ...result, message: "Olá, sou Maria da equipe." }])("rejects unsupported evidence, promises, identifiers or concealed AI identity", (value) => { expect(() => validateOutreachResult(value, input)).toThrow(); });
+  it.each([{ ...result, evidenceIds: ["foreign"] }, { ...result, message: result.message + " Seu crédito está aprovado." }, { ...result, message: result.message + " Taxa de 1% disponível." }, { ...result, message: result.message + " Seu CPF é 123.456.789-01" }, { ...result, message: "Olá, sou Maria da equipe." }])("rejects unsupported evidence, promises, identifiers or missing approved introduction", (value) => { expect(() => validateOutreachResult(value, input)).toThrow(); });
+  it("continues the conversation without repeating the introduction", () => {
+    const reply = { ...result, intent: "QUESTION", message: "Qual necessidade você gostaria de conversar com a equipe?" };
+    expect(validateOutreachResult(reply, { ...input, stage: "REPLY" })).toEqual(reply);
+  });
   it("normalizes actual Evolution flat delivery updates and ignores incoming/unsupported events", () => { const event = normalizeEvolutionWebhook({ event: "messages.update", instance: "test", data: [{ keyId: "out", fromMe: true, status: "READ" }, { keyId: "in", fromMe: false, status: "READ" }, { keyId: "edit", fromMe: true, status: "EDITED" }] }); expect(event.type).toBe("deliveries"); if (event.type === "deliveries") expect(event.deliveries).toMatchObject([{ providerMessageId: "out", state: "READ" }]); });
   it("prohibits injected transports in production", async () => { vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "production"); await expect(generateOutreach(input, vi.fn())).rejects.toThrow("Test hooks"); });
 });

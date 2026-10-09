@@ -11,4 +11,5 @@ coverage/
 .prisma/
 *.tsbuildinfo
 .private/
+output/
 

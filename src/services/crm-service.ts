@@ -174,7 +174,7 @@ export async function crmSetupDirectory(actor: CRMActor) {
     const managerId = "context" in actor && actor.context.accessScope === "TEAM" ? actor.context.userId : null;
     const [teams, members] = await Promise.all([
       transaction.team.findMany({ where: { tenantId: actor.tenantId, status: "ACTIVE", ...(managerId ? { members: { some: { tenantId: actor.tenantId, userId: managerId } } } : {}) }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-      transaction.membership.findMany({ where: { tenantId: actor.tenantId, role: { in: ["TENANT_MASTER", "TENANT_MANAGER", "CONSULTANT"] }, status: { in: ["ACTIVE", "INVITED"] }, user: { status: { in: ["ACTIVE", "INVITED"] }, ...(managerId ? { teamMembers: { some: { tenantId: actor.tenantId, team: { status: "ACTIVE", members: { some: { tenantId: actor.tenantId, userId: managerId } } } } } } : {}) } }, select: { id: true, role: true, status: true, user: { select: { name: true, email: true } } }, orderBy: { createdAt: "asc" }, take: 200 }),
+      transaction.membership.findMany({ where: { tenantId: actor.tenantId, role: { in: ["TENANT_MASTER", "TENANT_MANAGER", "CONSULTANT", "VIEWER"] }, status: { in: ["ACTIVE", "INVITED"] }, user: { status: { in: ["ACTIVE", "INVITED"] }, ...(managerId ? { teamMembers: { some: { tenantId: actor.tenantId, team: { status: "ACTIVE", members: { some: { tenantId: actor.tenantId, userId: managerId } } } } } } : {}) } }, select: { id: true, role: true, status: true, user: { select: { name: true, email: true } } }, orderBy: { createdAt: "asc" }, take: 200 }),
     ]);
     return { teams, members };
   });
@@ -212,7 +212,7 @@ export async function addCRMTeamMember(actor: CRMActor, input: z.infer<typeof cr
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`team-lifecycle:${data.teamId}`}, 0))`;
     const managerId = "context" in actor && actor.context.accessScope === "TEAM" ? actor.context.userId : null;
     if (!await transaction.team.findFirst({ where: { id: data.teamId, tenantId: actor.tenantId, status: "ACTIVE", ...(managerId ? { members: { some: { tenantId: actor.tenantId, userId: managerId } } } : {}) } })) throw new NotFoundError();
-    const member = await transaction.membership.findFirst({ where: { id: data.membershipId, tenantId: actor.tenantId, status: { in: ["ACTIVE", "INVITED"] }, role: { in: ["TENANT_MASTER", "TENANT_MANAGER", "CONSULTANT"] }, user: { status: { in: ["ACTIVE", "INVITED"] } } } });
+    const member = await transaction.membership.findFirst({ where: { id: data.membershipId, tenantId: actor.tenantId, status: { in: ["ACTIVE", "INVITED"] }, role: { in: ["TENANT_MASTER", "TENANT_MANAGER", "CONSULTANT", "VIEWER"] }, user: { status: { in: ["ACTIVE", "INVITED"] } } } });
     if (!member) throw new NotFoundError();
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`team-member:${data.teamId}:${member.userId}`}, 0))`;
     const existing = await transaction.teamMember.findUnique({ where: { teamId_userId: { teamId: data.teamId, userId: member.userId } } });

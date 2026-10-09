@@ -15,6 +15,8 @@ import { evaluateEligibility } from "@/services/messaging-governance";
 import { campaignActor, outreachEnabled, outreachSource } from "@/services/outreach-authority";
 import { outboundPreview, requestOutbound } from "@/services/outbound-service";
 import { assertTestHooksAllowed } from "@/services/test-hooks";
+import { registerDoNotContact } from "@/services/commercial-events";
+import { applyCommercialDecision, processCommercialFollowUps } from "@/services/opportunity-actions";
 
 const actorId = (actor: CRMActor) => "context" in actor ? actor.context.userId : actor.platformUserId;
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -23,12 +25,13 @@ export async function listOutreach(actor: CRMActor) {
   return db.$transaction(async (transaction) => {
     await authorizeCRMActor(transaction, actor, "plans.manage");
     const [campaigns, lists, connections, sessions] = await Promise.all([
-      transaction.outreachCampaign.findMany({ where: { tenantId: actor.tenantId }, orderBy: { createdAt: "desc" }, take: 50, include: { list: { select: { name: true } }, connection: { select: { instanceName: true } }, _count: { select: { sessions: true } } } }),
+      transaction.outreachCampaign.findMany({ where: { tenantId: actor.tenantId }, orderBy: { createdAt: "desc" }, take: 50, include: { playbook: { select: { id: true, name: true, status: true } }, list: { select: { name: true } }, connection: { select: { instanceName: true } }, _count: { select: { sessions: true } } } }),
       transaction.customerList.findMany({ where: { tenantId: actor.tenantId, status: { not: "ARCHIVED" } }, select: { id: true, name: true, _count: { select: { members: true } } }, orderBy: { name: "asc" }, take: 200 }),
       transaction.messagingConnection.findMany({ where: { tenantId: actor.tenantId, enabled: true }, select: { id: true, instanceName: true, lastState: true, isDefault: true }, orderBy: { createdAt: "asc" } }),
       transaction.outreachSession.findMany({ where: { tenantId: actor.tenantId }, orderBy: { updatedAt: "desc" }, take: 50, include: { customer: { select: { fullName: true } }, campaign: { select: { name: true } }, turns: { take: 12, orderBy: { createdAt: "desc" }, select: { id: true, kind: true, status: true, message: true, errorCode: true, createdAt: true, inputTokens: true, outputTokens: true } } } }),
     ]);
-    return { configuration: { ...aiConfiguration(), enabled: outreachEnabled(), outboundEnabled: process.env.WHATSAPP_OUTBOUND_ENABLED === "true" }, campaigns, lists, connections, sessions };
+    const playbooks = await transaction.campaignPlaybook.findMany({ where: { tenantId: actor.tenantId, status: "APPROVED" }, select: { id: true, name: true }, take: 100 });
+    return { playbooks, configuration: { ...aiConfiguration(), enabled: outreachEnabled(), outboundEnabled: process.env.WHATSAPP_OUTBOUND_ENABLED === "true" }, campaigns, lists, connections, sessions };
   });
 }
 export async function createOutreachCampaign(actor: CRMActor, input: z.infer<typeof campaignSchema>) {
@@ -40,7 +43,8 @@ export async function createOutreachCampaign(actor: CRMActor, input: z.infer<typ
     const existing = await transaction.outreachCampaign.findUnique({ where: { tenantId_requestKey: { tenantId: actor.tenantId, requestKey: data.requestKey } } });
     if (existing) { if (existing.inputHash !== inputHash) throw new ConflictError("Solicitação já usada com outros dados."); return existing; }
     if (!await transaction.customerList.findFirst({ where: { id: data.listId, tenantId: actor.tenantId, status: { not: "ARCHIVED" } } }) || !await transaction.messagingConnection.findFirst({ where: { id: data.connectionId, tenantId: actor.tenantId, enabled: true } })) throw new NotFoundError();
-    const item = await transaction.outreachCampaign.create({ data: { ...data, startsAt: new Date(data.startsAt), endsAt: new Date(data.endsAt), tenantId: actor.tenantId, createdById: actorId(actor), inputHash } });
+    if (data.playbookId && !await transaction.campaignPlaybook.findFirst({ where: { id: data.playbookId, tenantId: actor.tenantId, status: "APPROVED" } })) throw new NotFoundError();
+    const item = await transaction.outreachCampaign.create({ data: { ...data, playbookRequired: true, startsAt: new Date(data.startsAt), endsAt: new Date(data.endsAt), tenantId: actor.tenantId, createdById: actorId(actor), inputHash } });
     await recordEvent(transaction, { tenantId: actor.tenantId, actorUserId: actorId(actor), action: "AI_CAMPAIGN_CREATED", entityType: "OutreachCampaign", entityId: item.id, idempotencyKey: `outreach-created:${item.id}` });
     return item;
   });
@@ -54,6 +58,7 @@ export async function changeOutreachCampaign(actor: CRMActor, id: string, input:
     const item = await transaction.outreachCampaign.findFirst({ where: { id, tenantId: actor.tenantId } }); if (!item) throw new NotFoundError();
     if (item.version !== data.expectedVersion || item.status === "ENDED") throw new ConflictError("A campanha mudou ou foi encerrada.");
     if (data.action === "authorize" && (data.confirmed !== true || item.endsAt <= new Date())) throw new ConflictError("Confira e autorize a lista, o objetivo, a conexão e os limites.");
+    if (data.action === "authorize" && item.playbookRequired && (!item.playbookId || !await transaction.campaignPlaybook.findFirst({ where: { id: item.playbookId, tenantId: actor.tenantId, status: "APPROVED" } }))) throw new ConflictError("Aprovação da estratégia de abordagem é obrigatória para esta campanha.");
     const result = await transaction.outreachCampaign.update({ where: { id }, data: { status: data.action === "authorize" ? "ACTIVE" : data.action === "pause" ? "PAUSED" : "ENDED", version: { increment: 1 }, ...(data.action === "authorize" ? { authorizedById: actorId(actor), authorizedMemberId: "context" in actor ? actor.context.membershipId : null, authorizedAt: new Date() } : {}) } });
     // Any old generated text requires a fresh context after pausing or reauthorizing.
     await transaction.outreachTurn.updateMany({ where: { session: { campaignId: id }, status: { in: ["QUEUED", "RUNNING", "READY"] } }, data: { status: "CANCELLED", errorCode: "CAMPAIGN_CHANGED", lockToken: null } });
@@ -80,6 +85,7 @@ export async function controlOutreachSession(actor: CRMActor, id: string, input:
     if (session.control === "STOPPED") throw new ConflictError("O cliente encerrou o contato. Registre um novo consentimento antes de criar outro relacionamento.");
     if (!(await transaction.outreachSession.updateMany({ where: { id, version: data.expectedVersion }, data: { control: data.control, version: { increment: 1 }, handoffReason: data.control === "HUMAN" ? "ASSUMED_BY_TEAM" : null } })).count) throw new ConflictError("O atendimento mudou.");
     await transaction.outreachTurn.updateMany({ where: { sessionId: id, status: { in: ["QUEUED", "RUNNING", "READY"] } }, data: { status: "CANCELLED", lockToken: null, errorCode: "CONTROL_CHANGED" } });
+    await transaction.opportunity.updateMany({ where: { sessionId: id, tenantId: actor.tenantId, stage: { notIn: ["WON", "LOST", "DO_NOT_CONTACT"] } }, data: { stage: data.control === "HUMAN" ? "HUMAN_HANDOFF" : "AI_CONVERSATION", ...(data.control === "HUMAN" ? { humanAssignedAt: new Date() } : {}), version: { increment: 1 } } });
     if (data.control === "AI" && session.conversationId) {
       const latest = await transaction.conversationMessage.findFirst({ where: { conversationId: session.conversationId, direction: "INBOUND", tenantId: actor.tenantId }, orderBy: [{ occurredAt: "desc" }, { id: "desc" }] });
       if (latest && (!session.lastSentAt || latest.occurredAt > session.lastSentAt)) await transaction.outreachTurn.create({ data: { tenantId: actor.tenantId, sessionId: id, sourceKey: `resume:${session.version + 1}:${latest.id}`, kind: "REPLY" } });
@@ -92,6 +98,7 @@ async function eligibleCustomer(transaction: Prisma.TransactionClient, tenantId:
   const customer = await transaction.customer.findFirst({ where: { id: customerId, tenantId }, include: { identifiers: true } }); if (!customer) return false;
   const [policy, preference, pending] = await Promise.all([transaction.messagingPolicy.findUnique({ where: { tenantId } }), transaction.communicationPreference.findUnique({ where: { tenantId_customerId_channel: { tenantId, customerId, channel: "WHATSAPP" } } }), transaction.outboundDispatch.findFirst({ where: { tenantId, customerId, status: { in: ["QUEUED", "SENDING", "UNCERTAIN"] } } })]);
   const phones = customer.identifiers.filter((item) => item.type === "PHONE" && ["IMPORTED", "CONFIRMED"].includes(item.verification) && /^[1-9]\d{9,14}$/.test(item.normalizedValue));
+  if (await transaction.doNotContact.findFirst({ where: { tenantId, phone: { in: phones.map((v) => v.normalizedValue) } } })) return false;
   return !pending && evaluateEligibility({ now: new Date(), status: "APPROVED", approvedAt: new Date(), scheduledAt: new Date(), channel: "WHATSAPP", customerActive: customer.status === "ACTIVE", recipientAvailable: phones.length === 1, consent: preference?.consent, lastOutboundAt: customer.lastOutboundAt, policy }).eligible;
 }
 async function scheduleInitialContacts() {
@@ -134,7 +141,7 @@ export async function processOutreachBatch(generator?: typeof generateOutreach) 
   await processOutreachHandoffs();
   if (!outreachEnabled() || !aiConfiguration().configured || process.env.WHATSAPP_OUTBOUND_ENABLED !== "true") return 0;
   await db.outreachTurn.updateMany({ where: { status: "RUNNING", startedAt: { lt: new Date(Date.now() - 120_000) } }, data: { status: "FAILED", errorCode: "WORKER_INTERRUPTED", lockToken: null } });
-  await scheduleInitialContacts(); await scheduleFollowUps();
+  await scheduleInitialContacts(); await scheduleFollowUps(); await processCommercialFollowUps();
   // A READY turn committed before a worker crash is queued idempotently without another model call.
   const ready = await db.outreachTurn.findMany({ where: { status: "READY", planId: { not: null }, plan: { outboundDispatch: null } }, take: 5 });
   for (const item of ready) await queueReadyTurn(item.id).catch(() => {});
@@ -162,15 +169,17 @@ export async function processOutreachBatch(generator?: typeof generateOutreach) 
         if (!owned) return;
         if (current.fingerprint !== source.fingerprint || !await eligibleCustomer(transaction, job.tenantId, source.session.customerId)) throw new ConflictError("CONTEXT_CHANGED");
         const result = validateOutreachResult(output.result, source.input);
+        if (result.commercialDecision) await applyCommercialDecision(transaction, current, job.id, result.commercialDecision);
         const stop = result.nextStep === "STOP" || result.intent === "OPT_OUT";
         handoff = result.nextStep === "HANDOFF" || result.intent === "HUMAN_REQUEST";
         if (stop || handoff) {
-          await transaction.outreachSession.update({ where: { id: job.sessionId }, data: { control: stop ? "STOPPED" : "HUMAN", version: { increment: 1 }, handoffReason: stop ? "CUSTOMER_OPTED_OUT" : "AI_HANDOFF" } });
-          if (stop) await transaction.communicationPreference.upsert({ where: { tenantId_customerId_channel: { tenantId: job.tenantId, customerId: source.session.customerId, channel: "WHATSAPP" } }, create: { tenantId: job.tenantId, customerId: source.session.customerId, channel: "WHATSAPP", consent: "OPTED_OUT", evidence: "Recusa identificada na conversa pela assistente virtual.", recordedById: source.campaign.authorizedById! }, update: { consent: "OPTED_OUT", evidence: "Recusa identificada na conversa pela assistente virtual.", recordedById: source.campaign.authorizedById! } });
+          await transaction.outreachSession.update({ where: { id: job.sessionId }, data: { control: stop ? "STOPPED" : "HUMAN", version: { increment: 1 }, handoffReason: stop ? result.intent === "OPT_OUT" ? "CUSTOMER_OPTED_OUT" : "NOT_INTERESTED" : "AI_HANDOFF" } });
+          if (stop && result.intent === "OPT_OUT") { const phones = await transaction.customerIdentifier.findMany({ where: { tenantId: job.tenantId, customerId: source.session.customerId, type: "PHONE" } }); for (const phone of phones) await registerDoNotContact(transaction, job.tenantId, phone.normalizedValue, "Pedido de exclusão identificado na conversa.", "AI_DECISION", job.id); }
           await transaction.outreachTurn.update({ where: { id: job.id }, data: { status: stop ? "STOPPED" : "HANDOFF", result: result, inputTokens: output.inputTokens, outputTokens: output.outputTokens, completedAt: new Date(), lockToken: null } });
         } else {
           const plan = await transaction.relationshipPlan.create({ data: { tenantId: job.tenantId, customerId: source.session.customerId, createdById: source.campaign.authorizedById!, approvedById: source.campaign.authorizedById!, requestKey: randomUUID(), purpose: `IA: ${source.campaign.name}`.slice(0, 200), message: result.message, channel: "WHATSAPP", scheduledAt: new Date(), status: "APPROVED", approvedAt: source.campaign.authorizedAt } });
-          await transaction.outreachTurn.update({ where: { id: job.id }, data: { status: "READY", message: result.message, result: result, planId: plan.id, inputTokens: output.inputTokens, outputTokens: output.outputTokens, completedAt: new Date(), lockToken: null } });
+          const generatedContext = await outreachSource(transaction, job.sessionId, job.tenantId, job.kind);
+          await transaction.outreachTurn.update({ where: { id: job.id }, data: { status: "READY", fingerprint: generatedContext.fingerprint, message: result.message, result: result, planId: plan.id, inputTokens: output.inputTokens, outputTokens: output.outputTokens, completedAt: new Date(), lockToken: null } });
         }
         await recordEvent(transaction, { tenantId: job.tenantId, actorUserId: source.campaign.authorizedById!, action: "AI_OUTREACH_GENERATED", entityType: "OutreachTurn", entityId: job.id, metadata: { campaignId: source.campaign.id, nextStep: result.nextStep, promptVersion: OutreachPrompt.version }, idempotencyKey: `outreach-generated:${job.id}` });
       });

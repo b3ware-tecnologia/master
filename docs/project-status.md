@@ -1,5 +1,7 @@
 # Situação consolidada do projeto
 
+**Atualização local de 09/10/2026, ainda não publicada:** prompt da Vanessa consolidado para GPT-6 Luna e simulador com primeira abordagem, resposta e 16 cenários. Passaram 164 testes unitários, lint, TypeScript, build e aceitação de banco/worker em schema isolado do staging, com gerador simulado e zero chamadas ou envios reais. A avaliação conversacional com o modelo real e o chat web de continuidade permanecem pendentes. Consulte o [roteiro de testes da Vanessa](testing/vanessa-prompt-acceptance.md). A entrega publicada descrita abaixo é anterior a essas mudanças locais.
+
 O fluxo da arquitetura tem mecanismos implementados: importação → Customer 360 → planejamento de relacionamento → governança → WhatsApp/Evolution → análise de IA revisada → CRM → distribuição → trabalho do consultor. A continuidade inclui fila de envio governada, visão operacional, gestão de acesso/equipes e downloads privados de anexos. Implementação, homologação e operação real têm evidências distintas.
 
 **Requisito central esclarecido pelo usuário:** a IA inicia as conversas e conduz o relacionamento dentro de uma campanha autorizada, com encaminhamento ao consultor. O mecanismo proativo foi implementado e validado com transportes simulados; chave/ativação e aceitação conversacional reais continuam pendentes. Veja [continuidade de mensagens, IA e frontend Seleta](architecture/messaging-proactive-seleta.md).

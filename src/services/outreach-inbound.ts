@@ -1,6 +1,7 @@
 import type { ConversationMessage, Prisma } from "@prisma/client";
 import { lockMessagingTarget } from "@/services/messaging-locks";
 import { recordEvent } from "@/services/events";
+import { classifyExplicitContactRequest } from "@/domain/commercial";
 
 export async function observeOutreachInbound(transaction: Prisma.TransactionClient, message: ConversationMessage, customerId: string | null) {
   if (message.direction !== "INBOUND" || !customerId) return;
@@ -9,10 +10,11 @@ export async function observeOutreachInbound(transaction: Prisma.TransactionClie
   if (!session) return;
   await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`outreach-campaign:${session.campaignId}`}, 0))`;
   const text = (message.text ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").trim().toLowerCase();
-  const optOut = /\b(nao (me )?(mande|envie|quero|desejo)|pare de (me )?(mandar|enviar)|remova (meu|o meu)|cancelar contato|parar contato|sair da lista|descadastrar)\b/.test(text) || /^(pare|parar|stop|sair|cancelar)[.!\s]*$/.test(text);
+  const optOut = classifyExplicitContactRequest(message.text ?? "") === "OPT_OUT";
   const human = message.kind !== "TEXT" || /\b(atendente|consultor|pessoa|humano|gerente)\b/.test(text);
   await transaction.outreachSession.update({ where: { id: session.id }, data: { conversationId: message.conversationId, ...(optOut || human ? { control: optOut ? "STOPPED" : "HUMAN", version: { increment: 1 }, handoffReason: optOut ? "CUSTOMER_OPTED_OUT" : "HUMAN_REQUEST" } : {}) } });
   await transaction.outreachTurn.updateMany({ where: { sessionId: session.id, status: { in: ["QUEUED", "RUNNING", "READY"] } }, data: { status: "CANCELLED", lockToken: null, errorCode: "NEW_INBOUND_MESSAGE" } });
+  if (human) await transaction.opportunity.updateMany({ where: { sessionId: session.id, tenantId: message.tenantId, stage: { notIn: ["WON", "LOST", "DO_NOT_CONTACT"] } }, data: { stage: "HUMAN_HANDOFF", handoffAt: new Date(), version: { increment: 1 } } });
   if (optOut && session.campaign.authorizedById) {
     const evidence = "Pedido explícito para interromper contato recebido pelo WhatsApp.";
     await transaction.communicationPreference.upsert({ where: { tenantId_customerId_channel: { tenantId: message.tenantId, customerId, channel: "WHATSAPP" } }, create: { tenantId: message.tenantId, customerId, channel: "WHATSAPP", consent: "OPTED_OUT", evidence, recordedById: session.campaign.authorizedById }, update: { consent: "OPTED_OUT", evidence, recordedById: session.campaign.authorizedById } });

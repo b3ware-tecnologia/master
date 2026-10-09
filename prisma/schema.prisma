@@ -31,6 +31,7 @@ enum Role {
   TENANT_MASTER
   TENANT_MANAGER
   CONSULTANT
+  VIEWER
 }
 
 enum AccessScope {
@@ -149,6 +150,13 @@ enum MatchLevel {
 }
 
 model Tenant {
+  playbooks                CampaignPlaybook[]
+  opportunities            Opportunity[]
+  commercialJobs           CommercialAIJob[]
+  doNotContacts            DoNotContact[]
+  institutions             FinancialInstitution[]
+  creditProducts           CreditProduct[]
+  creditConditions         CreditCondition[]
   outboundDispatches       OutboundDispatch[]
   crmCases                 CRMCase[]
   crmNotes                 CRMNote[]
@@ -343,6 +351,7 @@ model OutboxEvent {
 }
 
 model Customer {
+  opportunities            Opportunity[]
   outreachSessions         OutreachSession[]
   outboundDispatches       OutboundDispatch[]
   crmCases                 CRMCase[]
@@ -480,6 +489,7 @@ model MessagingGovernanceCheck {
 }
 
 model MessagingConnection {
+  cadence             ChannelCadence?
   outboundDispatches  OutboundDispatch[]
   id                  String                 @id @default(cuid())
   tenantId            String
@@ -528,6 +538,7 @@ enum MessageKind {
 }
 
 model Conversation {
+  opportunities    Opportunity[]
   outreachSessions OutreachSession[]
   crmCases         CRMCase[]
   id               String                @id @default(cuid())
@@ -1077,6 +1088,10 @@ model MessageDeliveryEvent {
 }
 
 model OutreachCampaign {
+  playbookId           String?
+  playbookRequired     Boolean             @default(false)
+  playbook             CampaignPlaybook?   @relation(fields: [playbookId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  opportunities        Opportunity[]
   list                 CustomerList        @relation(fields: [listId, tenantId], references: [id, tenantId], onDelete: Restrict)
   creator              User                @relation("OutreachCreator", fields: [createdById], references: [id], onDelete: Restrict)
   authorizer           User?               @relation("OutreachAuthorizer", fields: [authorizedById], references: [id], onDelete: Restrict)
@@ -1111,6 +1126,7 @@ model OutreachCampaign {
 }
 
 model OutreachSession {
+  opportunity    Opportunity?
   customer       Customer         @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
   conversation   Conversation?    @relation(fields: [conversationId, tenantId], references: [id, tenantId], onDelete: Restrict)
   id             String           @id @default(cuid())
@@ -1161,4 +1177,192 @@ model OutreachTurn {
   @@unique([planId, tenantId])
   @@index([status, createdAt])
   @@index([tenantId, planId])
+}
+
+model CampaignPlaybook {
+  id             String             @id @default(cuid())
+  tenantId       String
+  name           String
+  instruction    String             @db.Text
+  interpretation Json?
+  status         String             @default("DRAFT")
+  version        Int                @default(0)
+  approvedById   String?
+  approvedAt     DateTime?
+  createdById    String
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  tenant         Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  campaigns      OutreachCampaign[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, status])
+}
+
+model Opportunity {
+  id              String            @id @default(cuid())
+  tenantId        String
+  customerId      String
+  campaignId      String?
+  conversationId  String?
+  sessionId       String?           @unique
+  stage           String            @default("RESPONDED")
+  version         Int               @default(0)
+  summary         String            @default("") @db.Text
+  interest        String?
+  productId       String?
+  lastIntent      String?
+  lastMessageId   String?
+  handoffAt       DateTime?
+  humanAssignedAt DateTime?
+  closedAt        DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer        Customer          @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  campaign        OutreachCampaign? @relation(fields: [campaignId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  conversation    Conversation?     @relation(fields: [conversationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  session         OutreachSession?  @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  product         CreditProduct?    @relation(fields: [productId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  tasks           OpportunityTask[]
+
+  @@unique([sessionId, tenantId])
+  @@unique([id, tenantId])
+  @@index([tenantId, stage, updatedAt])
+  @@index([tenantId, customerId])
+  @@index([tenantId, conversationId])
+}
+
+model OpportunityTask {
+  id            String      @id @default(cuid())
+  tenantId      String
+  opportunityId String
+  kind          String      @default("FOLLOWUP")
+  dueAt         DateTime
+  reason        String      @db.Text
+  status        String      @default("PENDING_REVIEW")
+  sourceKey     String
+  version       Int         @default(0)
+  createdById   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  opportunity   Opportunity @relation(fields: [opportunityId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([opportunityId, sourceKey])
+  @@index([tenantId, status, dueAt])
+}
+
+model DoNotContact {
+  id              String   @id @default(cuid())
+  tenantId        String
+  phone           String
+  reason          String
+  source          String
+  sourceMessageId String?
+  createdAt       DateTime @default(now())
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, phone])
+}
+
+model FinancialInstitution {
+  id        String          @id @default(cuid())
+  tenantId  String
+  name      String
+  source    String
+  status    String          @default("ACTIVE")
+  createdAt DateTime        @default(now())
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  products  CreditProduct[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, name])
+}
+
+model CreditProduct {
+  id            String               @id @default(cuid())
+  tenantId      String
+  institutionId String
+  name          String
+  kind          String
+  description   String               @db.Text
+  status        String               @default("ACTIVE")
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  institution   FinancialInstitution @relation(fields: [institutionId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  conditions    CreditCondition[]
+  opportunities Opportunity[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, status])
+}
+
+model CreditCondition {
+  id            String        @id @default(cuid())
+  tenantId      String
+  productId     String
+  agreement     String
+  terms         Json
+  disclosure    String        @db.Text
+  source        String
+  validFrom     DateTime
+  validUntil    DateTime
+  status        String        @default("DRAFT")
+  version       Int           @default(0)
+  publishedById String?
+  publishedAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product       CreditProduct @relation(fields: [productId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([id, tenantId])
+  @@index([tenantId, status, validFrom, validUntil])
+}
+
+model CommercialAIJob {
+  id            String    @id @default(cuid())
+  tenantId      String
+  requestedById String
+  membershipId  String?
+  kind          String
+  entityId      String
+  requestKey    String
+  inputHash     String
+  payload       Json
+  result        Json?
+  status        String    @default("QUEUED")
+  model         String?
+  promptVersion String?
+  inputTokens   Int?
+  outputTokens  Int?
+  errorCode     String?
+  lockToken     String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, requestKey])
+  @@index([status, createdAt])
+}
+
+model ChannelCadence {
+  id                 String              @id @default(cuid())
+  tenantId           String
+  connectionId       String              @unique
+  dailyLimit         Int                 @default(20)
+  hourlyLimit        Int                 @default(5)
+  newContactsLimit   Int                 @default(10)
+  followUpLimit      Int                 @default(5)
+  minIntervalSeconds Int                 @default(60)
+  days               Int[]               @default([1, 2, 3, 4, 5])
+  startHour          Int                 @default(9)
+  endHour            Int                 @default(18)
+  timeZone           String              @default("America/Sao_Paulo")
+  updatedAt          DateTime            @updatedAt
+  connection         MessagingConnection @relation(fields: [connectionId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([connectionId, tenantId])
 }

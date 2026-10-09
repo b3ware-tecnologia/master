@@ -2,7 +2,7 @@
 import { useState } from "react";
 import type { Role } from "@prisma/client";
 
-const labels: Record<Role, string> = { PLATFORM_ADMIN: "Plataforma", TENANT_MASTER: "Administrador", TENANT_MANAGER: "Gestor", CONSULTANT: "Consultor" };
+const labels: Record<Role, string> = { PLATFORM_ADMIN: "Plataforma", TENANT_MASTER: "Administrador", TENANT_MANAGER: "Gestor", VIEWER: "Somente leitura", CONSULTANT: "Consultor" };
 export function TenantSelector({ tenants, selected }: { tenants: { id: string; name: string; role: Role }[]; selected?: string }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   async function choose(id: string) {

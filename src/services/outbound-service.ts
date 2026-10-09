@@ -13,6 +13,7 @@ import { lockMessagingTarget } from "@/services/messaging-locks";
 import { recordEvent } from "@/services/events";
 import { resolveMessagingConnection } from "@/services/messaging-connection-resolver";
 import { assertAutomatedPlan } from "@/services/outreach-authority";
+import { channelCadenceState } from "@/services/channel-cadence";
 
 type Runtime = { enabled: () => boolean; configured: () => boolean; provider: () => SendingMessagingProvider };
 const defaultRuntime: Runtime = { enabled: outboundEnabled, configured: () => Boolean(process.env.EVOLUTION_API_URL && process.env.EVOLUTION_API_KEY), provider: configuredEvolutionProvider };
@@ -44,7 +45,10 @@ async function snapshot(transaction: Prisma.TransactionClient, actor: CRMActor, 
   if (!runtime.enabled()) reasons.push("OUTBOUND_DISABLED");
   if (!runtime.configured()) reasons.push("PROVIDER_REQUIRED");
   if (pending) reasons.push("OTHER_ATTEMPT_UNCONFIRMED");
-  const snapshotHash = hash({ plan: { id: plan.id, tenantId: plan.tenantId, customerId: plan.customerId, status: plan.status, approvedAt: plan.approvedAt, updatedAt: plan.updatedAt, message: plan.message, channel: plan.channel, scheduledAt: plan.scheduledAt }, customerStatus: plan.customer.status, lastOutboundAt: plan.customer.lastOutboundAt, recipient: recipient ? { id: recipient.id, value: recipient.normalizedValue, verification: recipient.verification, updatedAt: recipient.updatedAt } : null, policy, preference: preference ? { consent: preference.consent, updatedAt: preference.updatedAt } : null, connection: connection ? { id: connection.id, instanceName: connection.instanceName, enabled: connection.enabled } : null, accepted });
+  if (recipient && await transaction.doNotContact.findUnique({ where: { tenantId_phone: { tenantId: actor.tenantId, phone: recipient.normalizedValue } } })) reasons.push("DO_NOT_CONTACT");
+  const cadence = connection ? await channelCadenceState(transaction, actor.tenantId, connection.id, excludeId) : null;
+  if (cadence) { reasons.push(...cadence.reasons); const turn = await transaction.outreachTurn.findUnique({ where: { planId: plan.id } }); if (turn?.kind === "INITIAL" && cadence.policy && cadence.dailyNewContacts >= cadence.policy.newContactsLimit) reasons.push("CHANNEL_NEW_CONTACT_LIMIT"); if (turn?.kind === "FOLLOWUP" && cadence.policy && cadence.dailyFollowUps >= cadence.policy.followUpLimit) reasons.push("CHANNEL_FOLLOWUP_LIMIT"); }
+  const snapshotHash = hash({ plan: { id: plan.id, tenantId: plan.tenantId, customerId: plan.customerId, status: plan.status, approvedAt: plan.approvedAt, updatedAt: plan.updatedAt, message: plan.message, channel: plan.channel, scheduledAt: plan.scheduledAt }, customerStatus: plan.customer.status, lastOutboundAt: plan.customer.lastOutboundAt, recipient: recipient ? { id: recipient.id, value: recipient.normalizedValue, verification: recipient.verification, updatedAt: recipient.updatedAt } : null, policy, cadence: cadence?.policy ?? null, preference: preference ? { consent: preference.consent, updatedAt: preference.updatedAt } : null, connection: connection ? { id: connection.id, instanceName: connection.instanceName, enabled: connection.enabled } : null, accepted });
   return { plan, recipient, recipients, connection, snapshotHash, eligible: reasons.length === 0, reasons };
 }
 export async function outboundPreview(actor: CRMActor, planId: string, recipientIdentifierId?: string, runtime = defaultRuntime, connectionId?: string) {
@@ -150,6 +154,7 @@ async function finish(transaction: Prisma.TransactionClient, item: OutboundDispa
     if (turn) {
       await transaction.outreachTurn.updateMany({ where: { id: turn.id, status: "READY" }, data: { status: "SENT" } });
       await transaction.outreachSession.update({ where: { id: turn.sessionId }, data: { lastSentAt: new Date() } });
+      if (turn.sourceKey.startsWith("task:")) { const [, taskId, version] = turn.sourceKey.split(":"); await transaction.opportunityTask.updateMany({ where: { id: taskId, tenantId: turn.tenantId, status: "QUEUED", version: Number(version) }, data: { status: "COMPLETED", version: { increment: 1 } } }); }
     }
     await transaction.messagingConnection.update({ where: { id: item.connectionId }, data: { lastOutboundAt: new Date() } });
   }
@@ -185,6 +190,7 @@ export async function processOutboundBatch(runtime = defaultRuntime) {
         if (current.status !== "SENDING" || current.claimToken !== claimToken) throw new ConflictError("Dispatch claim lost");
         const actor = await requester(transaction, current);
         const state = await snapshot(transaction, actor, item.planId, item.recipientIdentifierId, runtime, item.id, item.connectionId);
+        if (state.reasons.length && state.reasons.every((reason) => reason.startsWith("CHANNEL_"))) { await transaction.outboundDispatch.updateMany({ where: { id: item.id, status: "SENDING", claimToken }, data: { status: "QUEUED", attempts: { decrement: 1 }, reasons: state.reasons, nextAttemptAt: new Date(Date.now() + 300_000), startedAt: null, claimToken: null, version: { increment: 1 } } }); return; }
         if (state.reasons.length === 1 && state.reasons[0] === "CONNECTION_PAUSED") { await finish(transaction, item, claimToken, item.attempts >= 5 ? "DEAD_LETTER" : "QUEUED", state.reasons); return; }
         if (!state.eligible || state.snapshotHash !== item.snapshotHash || state.connection?.id !== item.connectionId || state.connection.instanceName !== connection.instanceName || state.recipient?.normalizedValue !== item.recipient || state.plan.message !== item.message) { await finish(transaction, item, claimToken, "BLOCKED", state.eligible ? ["SOURCE_CHANGED"] : state.reasons); return; }
         sendStarted = true;
@@ -200,3 +206,5 @@ export async function processOutboundBatch(runtime = defaultRuntime) {
   }
   return processed;
 }
+
+

@@ -158,3 +158,12 @@ tbody tr:hover { background: #fcfdf9; }
 @media (max-width: 760px) { .sidebar { transform: translateX(-100%); transition: transform .2s; padding: 22px 18px 16px; } .sidebar nav { grid-template-columns: 1fr; margin-top: 0; } .workspace-main { margin-left: 0; } .menu-open .sidebar { transform: translateX(0); } .menu-overlay { display: block; position: fixed; inset: 0; border: 0; border-radius: 0; background: #1c35234d; z-index: 35; } .mobile-menu { display: inline-flex; padding: 7px 10px; } .private-badge { display: none; } .topbar { height: 65px; padding: 0 18px; } .content { padding: 22px 18px; } .crumb { gap: 9px; font-size: 12px; } .workspace-name { max-width: 115px; font-size: 10px; } .form { align-items: stretch; } .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } .metric { padding: 15px; } }
 @media (max-width: 440px) { .top-right { display: none; } .outreach-grid .form { grid-template-columns: 1fr; } .outreach-grid .form .wide { grid-column: auto; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+.commercial-tabs { display:flex; gap:8px; flex-wrap:wrap; margin:20px 0; }
+.commercial-tabs button.active { background:var(--accent,#239e62); color:white; }
+.commercial-kanban { display:flex; gap:14px; overflow-x:auto; padding-bottom:20px; align-items:flex-start; }
+.commercial-column { flex:0 0 280px; background:var(--surface-alt,#f0f5f2); padding:12px; border-radius:12px; }
+.commercial-column h2 { font-size:14px; display:flex; justify-content:space-between; }
+.commercial-card { background:var(--surface,#fff); border:1px solid var(--border,#dce4df); border-radius:10px; padding:14px; margin-top:12px; }
+.commercial-card > small { display:block; margin-top:6px; }
+.commercial-result { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
+.commercial-card button { margin:5px 0; }

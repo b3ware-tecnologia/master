@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import type { Role } from "@prisma/client";
 import { TenantSelector, LogoutButton } from "@/components/tenant-selector";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export type NavigationItem = { href: string; label: string; icon: string };
 function MenuIcon({ name }: { name: string }) {
@@ -25,11 +26,13 @@ export function WorkspaceShell({ children, items, tenants = [], selectedTenant, 
   const active = items.find((item) => pathname === item.href || (item.href !== "/app" && item.href !== "/platform" && pathname.startsWith(`${item.href}/`)));
   function switchPlatform(id: string) { const next = new URLSearchParams(); if (id) next.set("tenantId", id); router.push(`${pathname}${next.size ? `?${next}` : ""}`); router.refresh(); }
   return <div className={`shell ${open ? "menu-open" : ""}`}>
+    <a className="skip-link" href="#main-content">Ir para o conteúdo</a>
     {open && <button className="menu-overlay" aria-label="Fechar navegação" onClick={() => setOpen(false)} />}
     <aside className="sidebar" aria-label="Navegação principal"><Link className="brand" href={platform ? "/platform" : "/app"}><span className="brand-mark">BM</span><span><strong>BM Crédito</strong><small>RELACIONAMENTO INTELIGENTE</small></span></Link>
       {platform ? <div className="tenant-selector"><label>Empresa ativa<select aria-label="Empresa ativa" value={tenantId} onChange={(event) => switchPlatform(event.target.value)}><option value="">Todas / selecione</option>{tenants.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><small>Administração da plataforma</small></div> : <TenantSelector tenants={tenants as { id: string; name: string; role: Role }[]} selected={selectedTenant} />}
       <p className="nav-label">ESPAÇO DE TRABALHO</p><nav>{items.map((item) => <Link key={item.href} href={`${item.href}${platform && tenantId && item.href !== "/platform" ? `?tenantId=${encodeURIComponent(tenantId)}` : ""}`} className={active?.href === item.href ? "active" : ""} aria-current={active?.href === item.href ? "page" : undefined} onClick={() => setOpen(false)}><MenuIcon name={item.icon} />{item.label}</Link>)}</nav>
       <div className="sidebar-bottom"><div className="side-tip"><MenuIcon name="ai" /><strong>Relacionamento com contexto</strong><p>Clientes, conversas e equipe no mesmo fluxo.</p></div><div className="account-actions"><LogoutButton /></div></div>
-    </aside><div className="workspace-main"><header className="topbar"><div className="crumb"><button className="mobile-menu" aria-label="Abrir navegação" aria-expanded={open} onClick={() => setOpen(!open)}><span aria-hidden="true">☰</span></button><span>BM Crédito</span><span aria-hidden="true">/</span><b>{active?.label ?? "Área privada"}</b></div><div className="top-right"><span className="private-badge"><span aria-hidden="true">◈</span> Acesso privado</span><span className="workspace-name">{tenant?.name ?? (platform ? "Plataforma" : "Minha empresa")}</span></div></header><main className="content">{children}</main></div>
+    </aside><div className="workspace-main"><header className="topbar"><div className="crumb"><button className="mobile-menu" aria-label="Abrir navegação" aria-expanded={open} onClick={() => setOpen(!open)}><span aria-hidden="true">☰</span></button><span>BM Crédito</span><span aria-hidden="true">/</span><b>{active?.label ?? "Área privada"}</b></div><div className="top-right"><ThemeToggle /><span className="private-badge"><span aria-hidden="true">◈</span> Acesso privado</span><span className="workspace-name">{tenant?.name ?? (platform ? "Plataforma" : "Minha empresa")}</span></div></header><main className="content" id="main-content" tabIndex={-1}>{children}</main></div>
   </div>;
 }
+

@@ -20,6 +20,7 @@ export const roleCapabilities: Record<Role, readonly Capability[]> = {
   TENANT_MASTER: capabilities,
   TENANT_MANAGER: ["tenant.read", "users.read", "teams.read", "teams.manage_members", "settings.read", "customers.read", "lists.read", "lists.create", "lists.update", "lists.import", "tags.read", "tags.manage", "crm.read", "crm.update", "distribution.manage"],
   CONSULTANT: ["customers.read", "crm.read", "crm.update"],
+  VIEWER: ["tenant.read", "customers.read", "lists.read", "tags.read", "crm.read", "teams.read"],
 };
 
 export const roleAccessScope: Record<Role, AccessScope> = {
@@ -27,6 +28,7 @@ export const roleAccessScope: Record<Role, AccessScope> = {
   TENANT_MASTER: "TENANT",
   TENANT_MANAGER: "TEAM",
   CONSULTANT: "ASSIGNED",
+  VIEWER: "TENANT",
 };
 
 export type AuthorizationContext = {

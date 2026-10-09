@@ -50,7 +50,9 @@
     "harness:phase12": "tsx scripts/phase-12-acceptance.ts",
     "harness:phase12:staging": "node scripts/phase-2-staging.mjs phase12",
     "harness:phase13": "tsx scripts/phase-13-acceptance.ts",
-    "harness:phase13:staging": "node scripts/phase-2-staging.mjs phase13"
+    "harness:phase13:staging": "node scripts/phase-2-staging.mjs phase13",
+    "harness:phase14": "tsx scripts/phase-14-acceptance.ts",
+    "harness:phase14:staging": "node scripts/phase-2-staging.mjs phase14"
   },
   "dependencies": {
     "@prisma/client": "^6.16.2",

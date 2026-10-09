@@ -8,6 +8,7 @@ import { normalizeEvolutionWebhook, verifyWebhookToken, WebhookRequestError, typ
 import { recordEvent, recordNewEvents } from "@/services/events";
 import { recordObservedContact } from "@/services/observed-contact";
 import { observeOutreachInbound } from "@/services/outreach-inbound";
+import { observeCommercialInbound } from "@/services/commercial-events";
 
 export async function authenticateEvolutionWebhook(connectionId: string, token: string | null) {
   verifyWebhookToken(connectionId, token);
@@ -64,7 +65,7 @@ export async function applyEvolutionWebhook(transaction: Prisma.TransactionClien
     for (const conversation of conversations.values()) await transaction.conversation.update({ where: { id: conversation.id }, data: { customerId: conversation.customerId, displayName: conversation.displayName, lastMessageAt: conversation.lastMessageAt } });
     if (newMessages.length) await transaction.conversationMessage.createMany({ data: newMessages });
     for (const contact of contacts.values()) await recordObservedContact(transaction, connection.tenantId, contact.customerId, contact.direction, contact.occurredAt);
-    for (const message of newMessages) { if (message.direction === "OUTBOUND") await reconcileDelivery(transaction, connectionId, message.providerMessageId); const customerId = conversations.get(event.messages.find((item) => item.providerMessageId === message.providerMessageId)!.remoteJid)?.customerId ?? null; if (customerId) await observeOutreachInbound(transaction, message, customerId); }
+    for (const message of newMessages) { if (message.direction === "OUTBOUND") await reconcileDelivery(transaction, connectionId, message.providerMessageId); const customerId = conversations.get(event.messages.find((item) => item.providerMessageId === message.providerMessageId)!.remoteJid)?.customerId ?? null; await observeCommercialInbound(transaction, message, customerId); if (customerId) await observeOutreachInbound(transaction, message, customerId); }
     await recordNewEvents(transaction, newMessages.map((message) => ({ tenantId: connection.tenantId, action: "WHATSAPP_MESSAGE_OBSERVED", entityType: "ConversationMessage", entityId: message.id, metadata: { conversationId: message.conversationId, direction: message.direction, kind: message.kind }, idempotencyKey: `message-observed:${message.id}` })));
     if (newMessages.length) await transaction.messagingConnection.update({ where: { id: connectionId }, data: { ...(newMessages.some((item) => item.direction === "INBOUND") ? { lastInboundAt: new Date() } : {}), ...(newMessages.some((item) => item.direction === "OUTBOUND") ? { lastOutboundAt: new Date() } : {}) } });
     return { accepted, duplicates, ignored: event.messages.length === 0 };

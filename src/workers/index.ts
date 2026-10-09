@@ -8,6 +8,7 @@ import { processOutboundBatch } from "@/services/outbound-service";
 import { processMessagingReceiptBatch } from "@/services/messaging-receipt-service";
 import { processConnectionHealthBatch } from "@/services/messaging-health-service";
 import { processOutreachBatch } from "@/services/outreach-service";
+import { processCommercialAIBatch } from "@/services/commercial-ai-service";
 
 export type WorkerDependencies = {
   checkDatabase: () => Promise<void>;
@@ -22,6 +23,7 @@ async function waitForShutdown() {
     await processOutboxBatch();
     await processImportBatch();
     await processAIBatch();
+    await processCommercialAIBatch();
     await processOutreachBatch();
     await processOutboundBatch();
     await new Promise((resolve) => setTimeout(resolve, 5000));

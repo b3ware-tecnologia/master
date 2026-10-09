@@ -11,7 +11,7 @@ export async function authorizeTenantMember(transaction: Prisma.TransactionClien
 }
 export function customerScope(context: AuthorizationContext): Prisma.CustomerWhereInput {
   const base = { tenantId: context.tenantId };
-  if (context.role === "TENANT_MASTER" && context.accessScope === "TENANT") return base;
+  if ((context.role === "TENANT_MASTER" || context.role === "VIEWER") && context.accessScope === "TENANT") return base;
   const team = { tenantId: context.tenantId, status: "ACTIVE" as const, members: { some: { tenantId: context.tenantId, userId: context.userId } } };
   if (context.role === "TENANT_MANAGER" && context.accessScope === "TEAM") return { ...base, assignment: { is: { tenantId: context.tenantId, team } } };
   if (context.role === "CONSULTANT" && context.accessScope === "ASSIGNED") return { ...base, status: "ACTIVE", assignment: { is: { tenantId: context.tenantId, assignedMembershipId: context.membershipId, team, assignedMembership: { role: "CONSULTANT", status: "ACTIVE", user: { status: "ACTIVE" } } } } };

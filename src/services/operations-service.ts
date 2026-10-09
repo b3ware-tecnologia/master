@@ -22,6 +22,7 @@ export async function operationsOverview(actor: CRMActor, now = new Date()) {
       transaction.cRMCase.findMany({ where: { ...open, dueAt: { lte: nextDay } }, orderBy: [{ dueAt: "asc" }, { id: "asc" }], take: 20, select: { id: true, title: true, status: true, dueAt: true, customer: { select: { fullName: true, assignment: { select: { team: { select: { name: true } }, assignedMembership: { select: { user: { select: { name: true } } } } } } } } } }),
       transaction.cRMCase.groupBy({ by: ["status"], where: open, _count: { _all: true } }),
     ]);
-    return { tenantName: tenant.name, generatedAt: now, scope: "context" in actor ? actor.context.accessScope : "TENANT", counts: { activeCustomers, openCases, overdueCases, next24Hours, completedLast7Days, customersWaitingDistribution }, stages: Object.fromEntries(openCaseStatuses.map((status) => [status, stages.find((item) => item.status === status)?._count._all ?? 0])), returns };
+    return { canManageDistribution: !("context" in actor) || actor.context.capabilities.includes("distribution.manage"), tenantName: tenant.name, generatedAt: now, scope: "context" in actor ? actor.context.accessScope : "TENANT", counts: { activeCustomers, openCases, overdueCases, next24Hours, completedLast7Days, customersWaitingDistribution }, stages: Object.fromEntries(openCaseStatuses.map((status) => [status, stages.find((item) => item.status === status)?._count._all ?? 0])), returns };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 }
+
