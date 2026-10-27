@@ -52,7 +52,7 @@ async function requireActivePlatformUser(transaction: Prisma.TransactionClient, 
   if (!await transaction.user.findFirst({ where: { id: userId, status: "ACTIVE", memberships: { some: { role: "PLATFORM_ADMIN", status: "ACTIVE", tenant: { status: "ACTIVE" } } } } })) throw new AuthorizationError("Platform administrator required");
 }
 
-type ConnectionActor = { userId: string; tenantId: string; context?: AuthorizationContext; connectionId?: string };
+type ConnectionActor = { userId: string; tenantId: string; context?: AuthorizationContext; connectionId?: string; phoneNumber?: string };
 async function operateConnection(actor: ConnectionActor, action: "prepare" | "pair" | "check", provider?: PairingMessagingProvider) {
   if (actor.context) requireCapability(actor.context, "messaging.manage");
   const result = await db.$transaction(async (transaction) => {
@@ -69,20 +69,21 @@ async function operateConnection(actor: ConnectionActor, action: "prepare" | "pa
     if (!connection.enabled) throw new ConflictError("Messaging connection is disabled");
     let state: string = "ERROR";
     let qrCode: string | null = null;
+    let pairingCode: string | null = null;
     let errorCode: MessagingProviderUnavailable["code"] | null = null;
     try {
       const selectedProvider = provider ?? configuredEvolutionProvider();
       if (action === "prepare") await selectedProvider.ensureInstance(connection.instanceName);
       if (action === "pair") {
-        const pairing = await selectedProvider.requestPairing(connection.instanceName);
+        const pairing = await selectedProvider.requestPairing(connection.instanceName, actor.phoneNumber);
         state = pairing.state;
-        qrCode = pairing.qrCode;
+        qrCode = pairing.qrCode; pairingCode = pairing.pairingCode ?? null;
       } else state = await selectedProvider.getConnectionState(connection.instanceName);
     } catch (error) {
       if (!(error instanceof MessagingProviderUnavailable)) throw error;
       errorCode = error.code;
     }
-    const updated = await transaction.messagingConnection.update({ where: { id: connection.id }, data: { lastState: state, lastErrorCode: errorCode, lastCheckedAt: new Date() } });
+    const updated = await transaction.messagingConnection.update({ where: { id: connection.id }, data: { lastState: state, lastErrorCode: errorCode, lastCheckedAt: new Date(), ...(action==="pair"&&actor.phoneNumber&&pairingCode?{displayPhone:actor.phoneNumber}:{}) } });
     await recordEvent(transaction, {
       tenantId: actor.tenantId, actorUserId: actor.userId,
       action: action === "prepare" ? (errorCode ? "MESSAGING_INSTANCE_PREPARATION_FAILED" : "MESSAGING_INSTANCE_PREPARED") : action === "pair" ? "MESSAGING_PAIRING_REQUESTED" : "MESSAGING_CONNECTION_CHECKED",
@@ -90,10 +91,10 @@ async function operateConnection(actor: ConnectionActor, action: "prepare" | "pa
       metadata: { state, errorCode, qrAvailable: Boolean(qrCode) },
       idempotencyKey: action === "prepare" && !errorCode ? `instance-prepared:${connection.id}` : undefined,
     });
-    return { connection: updated, qrCode, errorCode };
+    return { connection: updated, qrCode, pairingCode, errorCode };
   }, { timeout: 40_000, maxWait: 15_000 });
   if (result.errorCode && action !== "check") throw new MessagingProviderUnavailable(result.errorCode);
-  return { connection: result.connection, qrCode: result.qrCode };
+  return { connection: result.connection, qrCode: result.qrCode, pairingCode: result.pairingCode };
 }
 
 export async function provisionEvolutionConnection(platformUserId: string, input: z.infer<typeof connectionSchema>, provider?: PairingMessagingProvider) {
@@ -107,9 +108,9 @@ export async function preparePlatformMessagingConnection(platformUserId: string,
 export async function checkPlatformMessagingConnection(platformUserId: string, tenantId: string, provider?: PairingMessagingProvider, connectionId?: string) {
   return (await operateConnection({ userId: platformUserId, tenantId, connectionId }, "check", provider)).connection;
 }
-export function pairPlatformMessagingConnection(platformUserId: string, tenantId: string, provider?: PairingMessagingProvider, connectionId?: string) {
-  return operateConnection({ userId: platformUserId, tenantId, connectionId }, "pair", provider);
+export function pairPlatformMessagingConnection(platformUserId: string, tenantId: string, provider?: PairingMessagingProvider, connectionId?: string, phoneNumber?: string) {
+  return operateConnection({ userId: platformUserId, tenantId, connectionId, phoneNumber }, "pair", provider);
 }
-export function pairMessagingConnection(context: AuthorizationContext, provider?: PairingMessagingProvider, connectionId?: string) {
-  return operateConnection({ userId: context.userId, tenantId: context.tenantId, context, connectionId }, "pair", provider);
+export function pairMessagingConnection(context: AuthorizationContext, provider?: PairingMessagingProvider, connectionId?: string, phoneNumber?: string) {
+  return operateConnection({ userId: context.userId, tenantId: context.tenantId, context, connectionId, phoneNumber }, "pair", provider);
 }

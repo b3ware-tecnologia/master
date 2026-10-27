@@ -4,16 +4,16 @@ import { mediaKinds, MessageMediaUnavailable, validateMedia, type MessageMediaPr
 import { configuredEvolutionProvider } from "@/integrations/evolution-provider";
 import { authorizeCRMActor, type CRMActor } from "@/services/crm-service";
 import { customerScope } from "@/services/customer-scope";
-import { authorizeConversationActor } from "@/services/conversation-service";
+import { authorizeInboxActor, repliedConversationScope } from "@/services/conversation-service";
 import { assertTestHooksAllowed } from "@/services/test-hooks";
 import { recordEvent } from "@/services/events";
 
 export async function downloadMessageMedia(actor: CRMActor, conversationId: string, messageId: string, source: "inbox" | "crm", provider?: MessageMediaProvider) {
   assertTestHooksAllowed(!!provider);
   async function selected() { return db.$transaction(async (transaction) => {
-    if (source === "inbox") await authorizeConversationActor(transaction, actor);
+    if (source === "inbox") await authorizeInboxActor(transaction, actor);
     else await authorizeCRMActor(transaction, actor, "crm.read");
-    const conversation = await transaction.conversation.findFirst({ where: { id: conversationId, tenantId: actor.tenantId }, select: { customerId: true, remoteJid: true } });
+    const conversation = await transaction.conversation.findFirst({ where: { ...repliedConversationScope(actor), id: conversationId }, select: { customerId: true, remoteJid: true } });
     if (!conversation) throw new NotFoundError();
     if (source === "crm" && (!conversation.customerId || !await transaction.cRMCase.findFirst({ where: { tenantId: actor.tenantId, conversationId, customerId: conversation.customerId, customer: "context" in actor ? customerScope(actor.context) : { tenantId: actor.tenantId } } }))) throw new NotFoundError();
     const message = await transaction.conversationMessage.findFirst({ where: { id: messageId, conversationId, tenantId: actor.tenantId }, include: { connection: { select: { id: true, tenantId: true, enabled: true, instanceName: true } } } });

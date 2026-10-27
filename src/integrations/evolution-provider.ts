@@ -89,16 +89,18 @@ export class EvolutionProvider implements WebhookMessagingProvider, SendingMessa
     } catch { throw new MessagingProviderUnavailable("INVALID_RESPONSE"); }
     // Upstream readback contains the header secret. Return no provider payload.
   }
-  async requestPairing(instanceName: string): Promise<PairingResult> {
+  async requestPairing(instanceName: string, phoneNumber?: string): Promise<PairingResult> {
     this.validateInstance(instanceName);
     const state = await this.getConnectionState(instanceName);
     if (state === "OPEN") return { state, qrCode: null };
-    const response = await this.request(`/instance/connect/${encodeURIComponent(instanceName)}`);
+    if (phoneNumber && !/^[1-9]\d{9,14}$/.test(phoneNumber)) throw new MessagingProviderUnavailable("INVALID_RESPONSE");
+    const response = await this.request(`/instance/connect/${encodeURIComponent(instanceName)}${phoneNumber ? `?number=${encodeURIComponent(phoneNumber)}` : ""}`);
     try {
-      const value = z.object({ error: z.boolean().optional(), instance: z.object({ instanceName: z.string(), state: z.string().optional() }).optional(), base64: z.string().optional(), qrcode: z.object({ base64: z.string().optional() }).optional(), count: z.number().optional() }).parse(await response.json());
+      const value = z.object({ error: z.boolean().optional(), instance: z.object({ instanceName: z.string(), state: z.string().optional() }).optional(), pairingCode: z.string().nullable().optional(), base64: z.string().optional(), qrcode: z.object({ base64: z.string().optional() }).optional(), count: z.number().optional() }).parse(await response.json());
       if (value.error) throw new MessagingProviderUnavailable("HTTP_ERROR");
       if (value.instance && value.instance.instanceName !== instanceName) throw new MessagingProviderUnavailable("INVALID_RESPONSE");
       if (value.instance?.state === "open") return { state: "OPEN", qrCode: null };
+      if (phoneNumber && value.pairingCode) return { state: "CONNECTING", qrCode:null, pairingCode:z.string().regex(/^[A-Za-z0-9-]{6,20}$/).parse(value.pairingCode) };
       const image = value.base64 ?? value.qrcode?.base64;
       if (image) return { state: "CONNECTING", qrCode: qrSchema.parse(image) };
       if (value.count !== undefined || value.instance?.state === "connecting") return { state: "CONNECTING", qrCode: null };

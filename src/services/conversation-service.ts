@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, type Conversation, type ConversationMessage } from "@prisma/client";
 import type { AuthorizationContext } from "@/domain/access";
+import { requireCapability } from "@/lib/auth/context";
 import { AuthorizationError, NotFoundError } from "@/domain/errors";
 import { db } from "@/lib/db";
-import { requireCapability } from "@/lib/auth/context";
 import { normalizeEvolutionWebhook, verifyWebhookToken, WebhookRequestError, type NormalizedWebhook } from "@/integrations/evolution-webhook";
 import { recordEvent, recordNewEvents } from "@/services/events";
 import { recordObservedContact } from "@/services/observed-contact";
 import { observeOutreachInbound } from "@/services/outreach-inbound";
+import { authorizeCRMActor } from "@/services/crm-service";
+import { customerScope } from "@/services/customer-scope";
 import { observeCommercialInbound } from "@/services/commercial-events";
 
 export async function authenticateEvolutionWebhook(connectionId: string, token: string | null) {
@@ -90,12 +92,16 @@ export async function authorizeConversationActor(transaction: Prisma.Transaction
   } else if (!await transaction.user.findFirst({ where: { id: actor.platformUserId, status: "ACTIVE", memberships: { some: { role: "PLATFORM_ADMIN", status: "ACTIVE", tenant: { status: "ACTIVE" } } } } })) throw new AuthorizationError();
   if (!await transaction.tenant.findFirst({ where: { id: actor.tenantId, status: "ACTIVE" } })) throw new NotFoundError();
 }
+export async function authorizeInboxActor(tx:Prisma.TransactionClient,actor:ConversationActor){ await authorizeCRMActor(tx,actor,"crm.read"); }
+export function repliedConversationScope(actor: ConversationActor): Prisma.ConversationWhereInput {
+  return { tenantId:actor.tenantId, messages:{some:{direction:"INBOUND"}}, ...("context" in actor && actor.context.accessScope!=="TENANT" ? {customer:customerScope(actor.context)} : {}) };
+}
 export async function listConversations(actor: ConversationActor, page = 1) {
   return db.$transaction(async (transaction) => {
-    await authorizeConversationActor(transaction, actor);
-    const where = { tenantId: actor.tenantId };
+    await authorizeInboxActor(transaction, actor);
+    const where = repliedConversationScope(actor);
     const [items, total] = await Promise.all([
-      transaction.conversation.findMany({ where, orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }], take: 25, skip: (page - 1) * 25, select: { id: true, remoteJid: true, displayName: true, lastMessageAt: true, customer: { select: { id: true, fullName: true } }, _count: { select: { messages: true } } } }),
+      transaction.conversation.findMany({ where, orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }], take: 25, skip: (page - 1) * 25, select: { id: true, remoteJid: true, displayName: true, connection:{select:{instanceName:true}}, lastMessageAt: true, customer: { select: { id: true, fullName: true } }, _count: { select: { messages: true } } } }),
       transaction.conversation.count({ where }),
     ]);
     return { items, total, page, pageSize: 25 };
@@ -103,8 +109,8 @@ export async function listConversations(actor: ConversationActor, page = 1) {
 }
 export async function getConversation(actor: ConversationActor, conversationId: string, page = 1) {
   return db.$transaction(async (transaction) => {
-    await authorizeConversationActor(transaction, actor);
-    const conversation = await transaction.conversation.findFirst({ where: { id: conversationId, tenantId: actor.tenantId }, select: { id: true, remoteJid: true, displayName: true, customer: { select: { id: true, fullName: true } } } });
+    await authorizeInboxActor(transaction, actor);
+    const conversation = await transaction.conversation.findFirst({ where: { ...repliedConversationScope(actor), id: conversationId }, select: { id: true, remoteJid: true, displayName: true, customer: { select: { id: true, fullName: true } } } });
     if (!conversation) throw new NotFoundError();
     const where = { tenantId: actor.tenantId, conversationId };
     const [items, total] = await Promise.all([

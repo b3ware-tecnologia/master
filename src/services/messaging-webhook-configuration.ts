@@ -1,3 +1,5 @@
+import type { AuthorizationContext } from "@/domain/access";
+import {authorizeTenantMember} from "@/services/customer-scope";
 import { db } from "@/lib/db";
 import { AuthorizationError, ConflictError, NotFoundError } from "@/domain/errors";
 import { configuredEvolutionProvider } from "@/integrations/evolution-provider";
@@ -5,9 +7,10 @@ import { connectionWebhookToken } from "@/integrations/evolution-webhook";
 import { recordEvent } from "@/services/events";
 import { resolveMessagingConnection } from "@/services/messaging-connection-resolver";
 
-export async function configureMessagingWebhook(tenantId: string, actor: { platformUserId: string } | { stagingOperator: true }, connectionId?: string) {
+export async function configureMessagingWebhook(tenantId: string, actor: { platformUserId: string } | { stagingOperator: true } | {context:AuthorizationContext}, connectionId?: string) {
   if ("stagingOperator" in actor && (process.env.RAILWAY_ENVIRONMENT_NAME !== "staging" || process.env.RAILWAY_PROJECT_ID !== "ef26eb2e-9425-471c-a647-65d93c0b1b8a")) throw new AuthorizationError();
   return db.$transaction(async (transaction) => {
+    if ("context" in actor) { if(actor.context.tenantId!==tenantId)throw new AuthorizationError(); await authorizeTenantMember(transaction,actor.context,"messaging.manage"); }
     if ("platformUserId" in actor && !await transaction.user.findFirst({ where: { id: actor.platformUserId, status: "ACTIVE", memberships: { some: { role: "PLATFORM_ADMIN", status: "ACTIVE", tenant: { status: "ACTIVE" } } } } })) throw new AuthorizationError();
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`messaging-connection:${tenantId}`}, 0))`;
     const connection = await resolveMessagingConnection(transaction, tenantId, connectionId);
@@ -17,7 +20,7 @@ export async function configureMessagingWebhook(tenantId: string, actor: { platf
     const destination = new URL(`/api/webhooks/evolution/${connection.id}`, base).toString();
     await configuredEvolutionProvider().configureWebhook(connection.instanceName, destination, connectionWebhookToken(connection.id));
     const updated = await transaction.messagingConnection.update({ where: { id: connection.id }, data: { webhookConfiguredAt: new Date() } });
-    await recordEvent(transaction, { tenantId, actorUserId: "platformUserId" in actor ? actor.platformUserId : undefined, action: "MESSAGING_WEBHOOK_CONFIGURED", entityType: "MessagingConnection", entityId: connection.id, metadata: { source: "platformUserId" in actor ? "platform" : "railway-operator", enabled: true } });
+    await recordEvent(transaction, { tenantId, actorUserId: "platformUserId" in actor ? actor.platformUserId : "context" in actor ? actor.context.userId : undefined, action: "MESSAGING_WEBHOOK_CONFIGURED", entityType: "MessagingConnection", entityId: connection.id, metadata: { source: "platformUserId" in actor ? "platform" : "railway-operator", enabled: true } });
     return updated;
   }, { timeout: 30_000, maxWait: 15_000 });
 }

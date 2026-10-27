@@ -4,7 +4,7 @@ import { WorkspaceShell } from "@/components/workspace-shell";
 export default async function PlatformLayout({ children }: { children: React.ReactNode }) {
   await requirePlatformAdminPage();
   const tenants = await db.tenant.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { name: "asc" } });
-  const items = [{ href: "/platform/commercial", label: "Operação comercial", icon: "ai" }, { href: "/platform/operations", label: "Visão geral", icon: "overview" }, { href: "/platform/crm", label: "Atendimentos", icon: "list" }, { href: "/platform/ai-outreach", label: "IA de relacionamento", icon: "ai" }, { href: "/platform/conversations", label: "Conversas WhatsApp", icon: "chat" }, { href: "/platform/whatsapp-outbox", label: "Envios WhatsApp", icon: "send" }, { href: "/platform", label: "Conexões e empresas", icon: "settings" }];
+  const items = [{href:"/platform",label:"Empresas",icon:"users"},{href:"/platform/dispatch",label:"Disparador",icon:"send"},{href:"/platform/conversations",label:"Conversas",icon:"chat"},{href:"/platform/numbers",label:"Números do WhatsApp",icon:"settings"}];
   return <WorkspaceShell platform tenants={tenants} items={items}>{children}</WorkspaceShell>;
 }
 

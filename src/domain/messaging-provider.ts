@@ -3,10 +3,10 @@ export interface MessagingProvider {
   readonly name: string;
   getConnectionState(instanceName: string): Promise<ConnectionState>;
 }
-export type PairingResult = { state: ConnectionState; qrCode: string | null };
+export type PairingResult = { state: ConnectionState; qrCode: string | null; pairingCode?: string | null };
 export interface PairingMessagingProvider extends MessagingProvider {
   ensureInstance(instanceName: string): Promise<void>;
-  requestPairing(instanceName: string): Promise<PairingResult>;
+  requestPairing(instanceName: string, phoneNumber?: string): Promise<PairingResult>;
 }
 export interface WebhookMessagingProvider extends PairingMessagingProvider {
   configureWebhook(instanceName: string, url: string, token: string): Promise<void>;

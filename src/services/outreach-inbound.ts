@@ -6,7 +6,9 @@ import { classifyExplicitContactRequest } from "@/domain/commercial";
 export async function observeOutreachInbound(transaction: Prisma.TransactionClient, message: ConversationMessage, customerId: string | null) {
   if (message.direction !== "INBOUND" || !customerId) return;
   await lockMessagingTarget(transaction, message.tenantId, customerId);
-  const session = await transaction.outreachSession.findFirst({ where: { tenantId: message.tenantId, customerId, control: "AI", campaign: { connectionId: message.connectionId, status: { in: ["ACTIVE", "PAUSED"] } } }, include: { campaign: true }, orderBy: { createdAt: "desc" } });
+  await transaction.outreachSession.updateMany({where:{tenantId:message.tenantId,customerId,respondedAt:null,createdAt:{lte:message.occurredAt},OR:[{connectionId:message.connectionId},{connectionId:null,campaign:{connectionId:message.connectionId}}]},data:{respondedAt:message.occurredAt}});
+  await transaction.outreachSession.updateMany({where:{tenantId:message.tenantId,customerId,conversationId:null,createdAt:{lte:message.occurredAt},OR:[{connectionId:message.connectionId},{connectionId:null,campaign:{connectionId:message.connectionId}}],campaign:{status:{in:["ACTIVE","PAUSED"]}}},data:{conversationId:message.conversationId}});
+  const session = await transaction.outreachSession.findFirst({ where: { tenantId: message.tenantId, customerId, control: "AI", webChatActive:false, OR:[{connectionId:message.connectionId},{connectionId:null,campaign:{connectionId:message.connectionId}}], campaign: { status: { in: ["ACTIVE", "PAUSED"] } } }, include: { campaign: true }, orderBy: { createdAt: "desc" } });
   if (!session) return;
   await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`outreach-campaign:${session.campaignId}`}, 0))`;
   const text = (message.text ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").trim().toLowerCase();

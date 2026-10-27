@@ -1,4 +1,50 @@
 /* BM banking workspace. Layout contracts remain shared with existing modules. */
+.primary-link { display:inline-flex; align-items:center; padding:12px 18px; border-radius:10px; background:var(--accent); color:var(--surface); font-weight:600; }
+.company-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; }
+.company-grid .panel { margin:0; }
+.dispatch-layout { display:grid; grid-template-columns:290px minmax(0,1fr); gap:22px; align-items:start; }
+.routine-list { display:grid; gap:12px; }
+.routine-card { text-align:left; padding:20px; display:grid; gap:10px; background:var(--surface); }
+.routine-card strong { font-size:16px; }
+.routine-card > span { font-size:11px; color:var(--accent); }
+.routine-card.selected { border-color:var(--accent); box-shadow:inset 3px 0 var(--accent); }
+.dispatch-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; margin:25px 0; }
+.dispatch-metrics strong { display:block; font-size:30px; margin-top:8px; font-variant-numeric:tabular-nums; }
+progress { display:block; width:100%; height:9px; accent-color:var(--accent); margin-top:12px; }
+.channel-picker { grid-column:1/-1; border:1px solid var(--line); border-radius:10px; padding:15px; max-height:240px; overflow:auto; }
+.channel-picker label { display:flex!important; align-items:center; gap:10px; font-size:12px; margin:12px 0; overflow-wrap:anywhere; }
+.chat-workspace { display:grid; grid-template-columns:300px minmax(0,1fr); gap:20px; align-items:start; }
+.chat-list { display:grid; gap:10px; padding:14px!important; }
+.chat-list > button { text-align:left; display:grid; gap:7px; padding:16px; min-width:0; }
+.chat-list > button small { overflow-wrap:anywhere; line-height:1.5; }
+.chat-list > button.selected { border-color:var(--accent); background:var(--accent-soft); }
+.staff-chat { min-width:0; }
+.staff-chat header small { overflow-wrap:anywhere; display:block; line-height:1.7; }
+.staff-chat-messages { display:flex; flex-direction:column; gap:14px; max-height:580px; overflow-y:auto; padding:18px 0; border-block:1px solid var(--line); }
+.chat-bubble { max-width:85%; padding:14px 17px; border-radius:14px; overflow-wrap:anywhere; }
+.chat-bubble p { margin:9px 0; white-space:pre-wrap; line-height:1.6; }
+.chat-bubble small,.chat-bubble time { display:block; font-size:10px; opacity:.85; }
+.chat-bubble.incoming { align-self:flex-start; background:var(--surface-alt); color:var(--ink); border-bottom-left-radius:3px; }
+.chat-bubble.outgoing { align-self:flex-end; background:var(--accent-soft); color:var(--ink); border-bottom-right-radius:3px; }
+.panel .chat-composer { display:grid; grid-template-columns:minmax(0,1fr) auto; }
+.copilot-panel { border-top:1px solid var(--line); margin-top:22px; padding-top:10px; }
+.copilot-panel p { font-size:12px; color:var(--muted); }
+.pairing-code { font-size:30px; letter-spacing:5px; font-variant-numeric:tabular-nums; }
+.customer-chat { max-width:720px; min-height:100dvh; margin:auto; display:flex; flex-direction:column; background:var(--surface); border-inline:1px solid var(--line); }
+.customer-chat-header { padding:22px 26px; display:flex; gap:12px; align-items:center; border-bottom:1px solid var(--line); }
+.customer-chat-header strong { font-size:20px; }
+.customer-chat-header small { display:block; margin-top:5px; }
+.customer-chat-profile { padding:20px 26px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.customer-chat-profile small { width:100%; }
+.chat-privacy { font-size:11px; line-height:1.6; margin:0 26px 18px; color:var(--muted); }
+.customer-chat-history { display:flex; flex-direction:column; gap:14px; padding:22px 26px; flex:1; min-height:300px; background:var(--page); }
+.customer-chat-composer { display:flex; gap:10px; padding:18px 26px; background:var(--surface); position:sticky; bottom:0; border-top:1px solid var(--line); }
+.customer-chat-composer textarea { flex:1; min-width:0; resize:vertical; padding:12px; }
+.customer-chat-composer button { background:var(--accent); color:var(--surface); }
+.customer-chat > footer { padding:0 26px 20px; font-size:10px; color:var(--muted); line-height:1.5; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+@media(max-width:1050px) { .dispatch-layout,.chat-workspace { grid-template-columns:1fr; } .routine-list,.chat-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .chat-list .inbox-pagination { grid-column:1/-1; } }
+@media(max-width:600px) { .routine-list,.chat-list { grid-template-columns:1fr; } .dispatch-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .chat-bubble { max-width:95%; } .panel .chat-composer { grid-template-columns:1fr; } .customer-chat-header,.customer-chat-profile,.customer-chat-history { padding-inline:18px; } .customer-chat-composer { padding:14px; } }
 .commercial-stats.stats-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
 .commercial-stats .stat-card { padding:18px 22px; }
 .commercial-stats .stat-card strong { margin:8px 0 0; font-size:30px; }

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { requirePlatformAdmin } from "@/lib/auth/context";
+import { pairingPhone } from "@/lib/pairing-http";
 import { apiError } from "@/lib/http";
 import { pairPlatformMessagingConnection } from "@/services/messaging-connection-service";
 
 export async function POST(request: Request, { params }: { params: Promise<{ tenantId: string }> }) {
-  try { return NextResponse.json(await pairPlatformMessagingConnection(await requirePlatformAdmin(), (await params).tenantId, undefined, new URL(request.url).searchParams.get("connectionId") ?? undefined), { headers: { "Cache-Control": "no-store, private" } }); }
+  try { return NextResponse.json(await pairPlatformMessagingConnection(await requirePlatformAdmin(), (await params).tenantId, undefined, new URL(request.url).searchParams.get("connectionId") ?? undefined, await pairingPhone(request)), { headers: { "Cache-Control": "no-store, private" } }); }
   catch (error) { return apiError(error); }
 }

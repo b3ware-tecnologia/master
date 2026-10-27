@@ -404,6 +404,7 @@ enum CommunicationChannel {
 }
 
 model RelationshipPlan {
+  humanReplies     HumanReply[]
   outreachTurn     OutreachTurn?
   outboundDispatch OutboundDispatch?
   crmCases         CRMCase[]
@@ -489,6 +490,9 @@ model MessagingGovernanceCheck {
 }
 
 model MessagingConnection {
+  displayName         String?
+  displayPhone        String?
+  outreachSessions    OutreachSession[]
   cadence             ChannelCadence?
   outboundDispatches  OutboundDispatch[]
   id                  String                 @id @default(cuid())
@@ -538,6 +542,7 @@ enum MessageKind {
 }
 
 model Conversation {
+  humanReplies     HumanReply[]
   opportunities    Opportunity[]
   outreachSessions OutreachSession[]
   crmCases         CRMCase[]
@@ -1088,6 +1093,11 @@ model MessageDeliveryEvent {
 }
 
 model OutreachCampaign {
+  connectionIds        String[]            @default([])
+  routeRequired        Boolean             @default(false)
+  handoffTeamId        String?
+  handoffMembershipId  String?
+  dispatchRoute        DispatchRoute?
   playbookId           String?
   playbookRequired     Boolean             @default(false)
   playbook             CampaignPlaybook?   @relation(fields: [playbookId, tenantId], references: [id, tenantId], onDelete: Restrict)
@@ -1126,22 +1136,27 @@ model OutreachCampaign {
 }
 
 model OutreachSession {
+  respondedAt    DateTime?
+  webChatActive  Boolean              @default(false)
+  webChat        WebChat?
+  connectionId   String?
+  connection     MessagingConnection? @relation(fields: [connectionId, tenantId], references: [id, tenantId], onDelete: Restrict)
   opportunity    Opportunity?
-  customer       Customer         @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  conversation   Conversation?    @relation(fields: [conversationId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  id             String           @id @default(cuid())
+  customer       Customer             @relation(fields: [customerId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  conversation   Conversation?        @relation(fields: [conversationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  id             String               @id @default(cuid())
   tenantId       String
   campaignId     String
   customerId     String
   conversationId String?
-  control        String           @default("AI")
-  version        Int              @default(0)
+  control        String               @default("AI")
+  version        Int                  @default(0)
   handoffReason  String?
   lastSentAt     DateTime?
-  followUpQueued Boolean          @default(false)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  campaign       OutreachCampaign @relation(fields: [campaignId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  followUpQueued Boolean              @default(false)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  campaign       OutreachCampaign     @relation(fields: [campaignId, tenantId], references: [id, tenantId], onDelete: Restrict)
   turns          OutreachTurn[]
 
   @@unique([id, tenantId])
@@ -1365,4 +1380,83 @@ model ChannelCadence {
   connection         MessagingConnection @relation(fields: [connectionId, tenantId], references: [id, tenantId], onDelete: Restrict)
 
   @@unique([connectionId, tenantId])
+}
+
+model DispatchRoute {
+  id            String           @id @default(cuid())
+  tenantId      String
+  campaignId    String           @unique
+  status        String           @default("QUEUED")
+  requestedById String
+  membershipId  String?
+  candidates    Json
+  ranked        Json
+  total         Int
+  excluded      Int              @default(0)
+  cursor        Int              @default(0)
+  version       Int              @default(0)
+  lockToken     String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  model         String?
+  errorCode     String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  campaign      OutreachCampaign @relation(fields: [campaignId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([campaignId, tenantId])
+  @@unique([id, tenantId])
+  @@index([status, updatedAt])
+}
+
+model HumanReply {
+  conversation   Conversation     @relation(fields: [conversationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  plan           RelationshipPlan @relation(fields: [planId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  id             String           @id @default(cuid())
+  tenantId       String
+  conversationId String
+  requestedById  String
+  requestKey     String
+  message        String           @db.Text
+  planId         String           @unique
+  createdAt      DateTime         @default(now())
+
+  @@unique([tenantId, requestKey])
+  @@index([tenantId, conversationId])
+}
+
+model WebChat {
+  id          String           @id @default(uuid())
+  tenantId    String
+  sessionId   String           @unique
+  tokenHash   String           @unique
+  expiresAt   DateTime
+  requestedAt DateTime?
+  processedAt DateTime?
+  status      String           @default("IDLE")
+  lockToken   String?
+  startedAt   DateTime?
+  version     Int              @default(0)
+  createdAt   DateTime         @default(now())
+  session     OutreachSession  @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  messages    WebChatMessage[]
+
+  @@unique([sessionId, tenantId])
+  @@unique([id, tenantId])
+  @@index([status, requestedAt])
+}
+
+model WebChatMessage {
+  id         String   @id @default(cuid())
+  tenantId   String
+  chatId     String
+  role       String
+  text       String   @db.Text
+  requestKey String
+  actorId    String?
+  createdAt  DateTime @default(now())
+  chat       WebChat  @relation(fields: [chatId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([chatId, requestKey])
+  @@index([tenantId, chatId, createdAt])
 }

@@ -1,3 +1,3 @@
-import { resolveAuthorizationContext } from "@/lib/auth/context";
-import { OperationsDashboard } from "@/components/operations-dashboard";
-export default async function OverviewPage() { const context = await resolveAuthorizationContext(); return <OperationsDashboard tenantId={context.tenantId} />; }
+import {redirect} from "next/navigation";
+import {resolveAuthorizationContext} from "@/lib/auth/context";
+export default async function Page(){const context=await resolveAuthorizationContext();redirect(context.capabilities.includes("plans.manage")?"/app/dispatch":"/app/conversations");}
