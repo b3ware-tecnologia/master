@@ -5,6 +5,8 @@ import {db} from "@/lib/db";
 import {ConflictError,NotFoundError} from "@/domain/errors";
 import {AIUnavailable} from "@/domain/conversation-ai";
 import {dispatchCandidateSchema,dispatchRouteOrder,validateDispatchRanking,type DispatchCandidate} from "@/domain/dispatch";
+import {fixedRelationshipPlaybook} from "@/domain/relationship-persona";
+import {ensureFixedApproach} from "@/services/fixed-approach-service";
 import {outreachScore} from "@/domain/commercial";
 import {roleCapabilities,roleAccessScope} from "@/domain/access";
 import {authorizeCRMActor,type CRMActor} from "@/services/crm-service";
@@ -21,7 +23,8 @@ export async function prepareDispatchRoute(actor:CRMActor,campaignId:string){
     const campaign=await tx.outreachCampaign.findFirst({where:{id:campaignId,tenantId:actor.tenantId},include:{playbook:true}});
     if(!campaign)throw new NotFoundError();
     if(campaign.status!=="DRAFT")throw new ConflictError("A rota só pode ser preparada antes de iniciar a rotina.");
-    if(campaign.playbook?.status!=="APPROVED")throw new ConflictError("Escolha uma estratégia aprovada antes de preparar a rota.");
+    const fixed = await ensureFixedApproach(tx,actor.tenantId,commercialActorId(actor));
+    if(campaign.playbookId!==fixed.id)await tx.outreachCampaign.update({where:{id:campaign.id},data:{playbookId:fixed.id}});
     if(await tx.outreachSession.count({where:{campaignId}}))throw new ConflictError("Esta rotina já possui contatos iniciados.");
     const old=await tx.dispatchRoute.findUnique({where:{campaignId}});
     if(old&&["QUEUED","RUNNING"].includes(old.status))throw new ConflictError("A rota já está sendo preparada.");
@@ -55,7 +58,7 @@ export async function processDispatchPlanningBatch(generator?:typeof rankDispatc
       const actor:CRMActor=member?{tenantId:job.tenantId,context:{tenantId:job.tenantId,userId:job.requestedById,membershipId:member.id,role:member.role,accessScope:roleAccessScope[member.role],capabilities:roleCapabilities[member.role]}}:{tenantId:job.tenantId,platformUserId:job.requestedById};
       const campaign=await db.$transaction(async tx=>{await authorizeCRMActor(tx,actor,"plans.manage");return tx.outreachCampaign.findFirstOrThrow({where:{id:job.campaignId,tenantId:job.tenantId,status:"DRAFT"}});});
       const all=z.array(dispatchCandidateSchema).max(10000).parse(job.candidates);const batch=all.slice(job.cursor,job.cursor+50);
-      const result=validateDispatchRanking({priorities:await (generator??rankDispatchCandidates)(batch,campaign.objective)},batch);
+      const result=validateDispatchRanking({priorities:await (generator??rankDispatchCandidates)(batch,fixedRelationshipPlaybook.objective)},batch);
       const ranked=[...z.array(z.unknown()).parse(job.ranked),...result];const cursor=job.cursor+batch.length;
       await db.$transaction(async tx=>{
         await authorizeCRMActor(tx,actor,"plans.manage");

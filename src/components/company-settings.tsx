@@ -1,15 +1,7 @@
 "use client";
-import {useEffect,useState} from "react";
+import {useState} from "react";
 import {CRMSetupPanel} from "@/components/crm-setup";
-import {PlaybookEditor} from "@/components/commercial-workspace";
 import {CadenceEditor} from "@/components/commercial-workspace";
 type Data=Awaited<ReturnType<typeof import("@/services/commercial-service").listCommercial>>;
 export function NumberCadenceSettings({connection}:{connection:Data["connections"][number]}){const [busy,setBusy]=useState(false);const [notice,setNotice]=useState("");return <details><summary>Limites e horários deste número</summary><CadenceEditor connection={connection} busy={busy} act={async(operation,input,id)=>{setBusy(true);try{const r=await fetch("/api/commercial",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({operation,input,id})});const v=await r.json();setNotice(r.ok?"Limites registrados.":v.error);}catch{setNotice("Não foi possível salvar os limites.");}finally{setBusy(false);}}}/>{notice&&<p role="status">{notice}</p>}</details>;}
 export function TeamSettings({tenantId}:{tenantId:string}){const [revision,setRevision]=useState(0);return <CRMSetupPanel key={revision} base="/api" query={`?tenantId=${tenantId}`} onChanged={()=>setRevision(v=>v+1)}/>;}
-export function StrategySettings({tenantId}:{tenantId:string}){
-  const [data,setData]=useState<Data|null>(null);const [error,setError]=useState("");const [busy,setBusy]=useState(false);const api=`/api/commercial?tenantId=${tenantId}`;
-  async function load(){const r=await fetch(api,{headers:{"x-tenant-id":tenantId},cache:"no-store"});if(!r.ok)throw new Error("Não foi possível consultar as estratégias.");setData(await r.json());}
-  useEffect(()=>{void load().catch(e=>setError(e.message));},[tenantId]);
-  async function act(operation:string,input:unknown,id?:string){setBusy(true);setError("");try{const r=await fetch(api,{method:"POST",headers:{"Content-Type":"application/json","x-tenant-id":tenantId},body:JSON.stringify({operation,input,id})});const v=await r.json();if(!r.ok)throw new Error(v.error);await load();}catch(e){setError(e instanceof Error?e.message:"Não foi possível salvar.");throw e;}finally{setBusy(false);}}
-  return <details className="panel"><summary>Estratégia e personalidade da IA</summary><p>Defina a apresentação da Vanessa, o objetivo e o ponto de encaminhamento ao atendente.</p>{error&&<p className="error" role="alert">{error}</p>}<form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void act("playbook-create",Object.fromEntries(f)).catch(()=>{});}}><label>Nome da estratégia<input name="name" required maxLength={160}/></label><label>Instruções de atendimento<textarea name="instruction" minLength={1} maxLength={6000} required rows={4}/></label><button disabled={busy}>Criar estratégia</button></form>{data?.playbooks.map(p=><PlaybookEditor key={`${p.id}:${p.version}`} item={p} busy={busy} act={act} interpret={()=>act("ai-job",{kind:"PLAYBOOK",entityId:p.id,requestKey:crypto.randomUUID()})}/>)}</details>;
-}

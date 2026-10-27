@@ -4,14 +4,20 @@ A instrução do usuário em 27/10/2026 substitui a amplitude do portal anterior
 
 ## Admin Center
 
-Somente administradores da plataforma cadastram empresas, geram o convite do administrador inicial e selecionam a empresa que vão apoiar. Cada empresa mantém seus contatos, listas, números, estratégias, rotinas, conversas e equipe. Criar uma empresa não copia dados de outra nem altera a conta de um usuário existente.
+Somente administradores da plataforma cadastram empresas, geram o convite do administrador inicial e selecionam a empresa que vão apoiar. Cada empresa mantém seus contatos, listas, números, rotinas, conversas e equipe. Criar uma empresa não copia dados de outra nem altera a conta de um usuário existente.
 
 ## Portal da empresa
 
 1. **Listas e contatos:** importar CSV/XLSX, revisar o mapeamento, preservar os contatos e consultar listas. A revisão registra a autorização de contato e a conferência dos dados de análise. Pedidos de não contato nunca são sobrescritos por essa revisão.
-2. **Disparador:** selecionar lista, estratégia aprovada, até 50 números da própria empresa e equipe/atendente. Preparar a rota com IA, revisar a ordem e iniciar. Cada rotina tem contadores de contatos iniciados, enviados, entregues, respostas e encaminhamentos.
+2. **Disparador:** selecionar lista, até 50 números da própria empresa e equipe/atendente. Preparar a rota com IA, revisar a ordem e iniciar. Cada rotina tem contadores de contatos iniciados, enviados, entregues, respostas e encaminhamentos.
 3. **Conversas:** mostrar somente clientes que responderam no WhatsApp ou no chat web. Preservar o número e o canal de origem. O humano assume e responde dentro do sistema; a IA continua como copiloto, sem enviar a sugestão sozinha.
-4. **Configurações:** equipe e convites, estratégia/persona, horários, limites e números do WhatsApp.
+4. **Configurações:** equipe e convites, consulta da abordagem fixa, horários, limites e números do WhatsApp.
+
+## Abordagem e identidade
+
+A abordagem é única e definida no código, sem editor de regras no portal ou nas APIs dos clientes. As listas são informadas pela empresa como antigos clientes. O atendimento retoma o relacionamento e oferece ajuda para avaliar consignado justo e parcelas compatíveis com a renda informada, sem inventar salário, contratos, taxa ou aprovação.
+
+Cada novo atendimento recebe automaticamente um dos 20 nomes: Vanessa, Mariana, Camila, Juliana, Fernanda, Amanda, Beatriz, Carolina, Larissa, Gabriela, Patrícia, Renata, Daniela, Aline, Bruna, Letícia, Priscila, Tatiane, Luana e Débora. A identidade é persistida e permanece a mesma nas respostas, no chat web e no copiloto. Atendimentos anteriores preservam Vanessa. Se perguntada diretamente se é IA, responde com transparência.
 
 ## Rotina e prioridade
 

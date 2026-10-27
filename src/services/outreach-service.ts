@@ -15,6 +15,8 @@ import { evaluateEligibility } from "@/services/messaging-governance";
 import { campaignActor, outreachEnabled, outreachSource } from "@/services/outreach-authority";
 import { outboundPreview, requestOutbound } from "@/services/outbound-service";
 import { assertTestHooksAllowed } from "@/services/test-hooks";
+import {chooseRelationshipName,fixedRelationshipPlaybook} from "@/domain/relationship-persona";
+import {ensureFixedApproach} from "@/services/fixed-approach-service";
 import {ensureWebChatInvite} from "@/services/web-chat-service";
 import { dispatchRouteOrder } from "@/domain/dispatch";
 import { assignRoutineHandoff } from "@/services/routine-handoff";
@@ -38,7 +40,7 @@ export async function listOutreach(actor: CRMActor) {
   });
 }
 export async function createOutreachCampaign(actor: CRMActor, input: z.infer<typeof campaignSchema>) {
-  const data = campaignSchema.parse(input); const inputHash = hash({ actor: actorId(actor), data });
+  const data = campaignSchema.parse({...input,objective:fixedRelationshipPlaybook.objective,playbookId:undefined}); const inputHash = hash({ actor: actorId(actor), data });
   if (new Date(data.endsAt) <= new Date()) throw new ConflictError("Defina uma validade futura.");
   return db.$transaction(async (transaction) => {
     await authorizeCRMActor(transaction, actor, "plans.manage");
@@ -48,10 +50,10 @@ export async function createOutreachCampaign(actor: CRMActor, input: z.infer<typ
     if (!await transaction.customerList.findFirst({ where: { id: data.listId, tenantId: actor.tenantId, status: { not: "ARCHIVED" } } }) || !await transaction.messagingConnection.findFirst({ where: { id: data.connectionId, tenantId: actor.tenantId, enabled: true } })) throw new NotFoundError();
     const pool = [...new Set(data.connectionIds?.length ? data.connectionIds : [data.connectionId])];
     if (!pool.includes(data.connectionId) || await transaction.messagingConnection.count({where:{id:{in:pool},tenantId:actor.tenantId,enabled:true}})!==pool.length) throw new NotFoundError();
-    if (data.playbookId && !await transaction.campaignPlaybook.findFirst({ where: { id: data.playbookId, tenantId: actor.tenantId, status: "APPROVED" } })) throw new NotFoundError();
+    const fixedApproach = await ensureFixedApproach(transaction,actor.tenantId,actorId(actor));
     if (data.handoffTeamId && !await transaction.team.findFirst({where:{id:data.handoffTeamId,tenantId:actor.tenantId,status:"ACTIVE"}})) throw new NotFoundError();
     if (data.handoffMembershipId && (!data.handoffTeamId || !await transaction.membership.findFirst({where:{id:data.handoffMembershipId,tenantId:actor.tenantId,role:"CONSULTANT",status:"ACTIVE",user:{status:"ACTIVE",teamMembers:{some:{tenantId:actor.tenantId,teamId:data.handoffTeamId}}}}}))) throw new ConflictError("Escolha um atendente ativo da equipe selecionada.");
-    const item = await transaction.outreachCampaign.create({ data: { ...data, connectionIds: pool, playbookRequired: true, routeRequired: true, startsAt: new Date(data.startsAt), endsAt: new Date(data.endsAt), tenantId: actor.tenantId, createdById: actorId(actor), inputHash } });
+    const item = await transaction.outreachCampaign.create({ data: { ...data, playbookId:fixedApproach.id, connectionIds: pool, playbookRequired: true, routeRequired: true, startsAt: new Date(data.startsAt), endsAt: new Date(data.endsAt), tenantId: actor.tenantId, createdById: actorId(actor), inputHash } });
     await recordEvent(transaction, { tenantId: actor.tenantId, actorUserId: actorId(actor), action: "AI_CAMPAIGN_CREATED", entityType: "OutreachCampaign", entityId: item.id, idempotencyKey: `outreach-created:${item.id}` });
     return item;
   });
@@ -138,7 +140,7 @@ async function scheduleInitialContacts() {
       const phone = (await transaction.customerIdentifier.findMany({ where: { tenantId: campaign.tenantId, customerId: member.customerId, type: "PHONE", verification: { in: ["IMPORTED", "CONFIRMED"] } } })).find((item) => /^[1-9]\d{9,14}$/.test(item.normalizedValue))!;
       const selectedConnection = pool[(recent.length + added) % pool.length];
       const conversation = await transaction.conversation.findUnique({ where: { connectionId_remoteJid: { connectionId: selectedConnection.id, remoteJid: `${phone.normalizedValue}@s.whatsapp.net` } } });
-      const session = await transaction.outreachSession.create({ data: { tenantId: campaign.tenantId, customerId: member.customerId, campaignId: campaign.id, connectionId:selectedConnection.id, conversationId: conversation?.id ?? null } });
+      const session = await transaction.outreachSession.create({ data: { tenantId: campaign.tenantId, customerId: member.customerId, campaignId: campaign.id, personaName:chooseRelationshipName(`${campaign.tenantId}:${campaign.id}:${member.customerId}`), connectionId:selectedConnection.id, conversationId: conversation?.id ?? null } });
       await transaction.outreachTurn.create({ data: { tenantId: campaign.tenantId, sessionId: session.id, sourceKey: "initial", kind: "INITIAL" } }); added++;
     }
   }).catch(() => { /* A revoked campaign is ineligible, and cannot stop processing other companies. */ });

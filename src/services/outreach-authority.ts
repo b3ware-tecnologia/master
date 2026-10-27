@@ -5,7 +5,7 @@ import { ConflictError } from "@/domain/errors";
 import type { OutreachInput } from "@/domain/outreach";
 import { authorizeCRMActor, type CRMActor } from "@/services/crm-service";
 import { currentCreditKnowledge } from "@/services/commercial-service";
-import { playbookInterpretationSchema } from "@/domain/commercial";
+import {fixedRelationshipPlaybook} from "@/domain/relationship-persona";
 
 export const outreachEnabled = () => process.env.AI_OUTREACH_ENABLED === "true";
 export async function campaignActor(transaction: Prisma.TransactionClient, campaign: OutreachCampaign): Promise<CRMActor> {
@@ -31,8 +31,9 @@ export async function outreachSource(transaction: Prisma.TransactionClient, sess
   if (campaign.playbookRequired && campaign.playbook?.status !== "APPROVED") throw new ConflictError("PLAYBOOK_NOT_APPROVED");
   const messages = session.conversationId ? await transaction.conversationMessage.findMany({ where: { tenantId, conversationId: session.conversationId }, orderBy: [{ occurredAt: "desc" }, { id: "desc" }], take: 30, select: { id: true, direction: true, text: true, kind: true } }) : [];
   const prior = await transaction.outreachTurn.findMany({ where: { sessionId, tenantId, status: "SENT" }, orderBy: { createdAt: "desc" }, take: 12, select: { id: true, message: true } });
-  const input: OutreachInput = { objective: campaign.objective, stage: kind, customer: { firstName: session.customer.fullName.split(" ")[0].slice(0, 60), facts: session.customer.facts.map(({ id, key, value }) => ({ id, key, value: value.slice(0, 300) })) }, messages: [...prior.reverse().map((item) => ({ id: item.id, direction: "OUTBOUND", text: item.message, kind: "TEXT" })), ...messages.reverse().map((item) => ({ ...item, text: item.text?.slice(0, 2000) ?? null }))] };
-  if (campaign.playbook) { input.playbook = playbookInterpretationSchema.parse(campaign.playbook.interpretation); input.memory = session.opportunity?.summary ?? ""; input.knowledge = await currentCreditKnowledge(transaction, tenantId); input.expiresAt = campaign.endsAt.toISOString(); }
+  const organization = await transaction.tenant.findUniqueOrThrow({where:{id:tenantId},select:{name:true,slug:true}});
+  const input: OutreachInput = { agentName:session.personaName, organizationName:organization.slug==="demonstracao-crm-staging"?"BM Crédito":organization.name, objective: fixedRelationshipPlaybook.objective, stage: kind, customer: { firstName: session.customer.fullName.split(" ")[0].slice(0, 60), facts: session.customer.facts.map(({ id, key, value }) => ({ id, key, value: value.slice(0, 300) })) }, messages: [...prior.reverse().map((item) => ({ id: item.id, direction: "OUTBOUND", text: item.message, kind: "TEXT" })), ...messages.reverse().map((item) => ({ ...item, text: item.text?.slice(0, 2000) ?? null }))] };
+  if (campaign.playbook) { input.playbook = fixedRelationshipPlaybook; input.memory = session.opportunity?.summary ?? ""; input.knowledge = await currentCreditKnowledge(transaction, tenantId); input.expiresAt = campaign.endsAt.toISOString(); }
   const fingerprint = createHash("sha256").update(JSON.stringify({ input, sessionVersion: session.version, connectionId:bound.id, campaignVersion: campaign.version, memberId: member.id })).digest("hex");
   input.now = new Date().toISOString();
   return { session, campaign, actor, input, fingerprint };

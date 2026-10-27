@@ -1,0 +1,9 @@
+import {describe,it,expect} from "vitest";
+import {chooseRelationshipName,relationshipAgentNames,hasRelationshipIntroduction,hasConflictingRelationshipName,fixedRelationshipPlaybook,relationshipPersonaInstructions} from "@/domain/relationship-persona";
+describe("fixed relationship approach and saved identity",()=>{
+  it("uses exactly twenty distinct Brazilian names",()=>{expect(relationshipAgentNames).toHaveLength(20);expect(new Set(relationshipAgentNames).size).toBe(20);});
+  it("chooses a stable name and uses the entire pool across sessions",()=>{expect(chooseRelationshipName("tenant:campaign:customer")).toBe(chooseRelationshipName("tenant:campaign:customer"));expect(new Set(Array.from({length:2000},(_,i)=>chooseRelationshipName(`session:${i}`))).size).toBe(20);});
+  it.each(relationshipAgentNames)("accepts the configured introduction for %s",name=>{expect(hasRelationshipIntroduction(`Oi, sou a ${name} da Empresa Exemplo.`,name,"Empresa Exemplo")).toBe(true);expect(hasRelationshipIntroduction("Oi, sou a Vanessa da Empresa Exemplo.",name,"Empresa Exemplo")).toBe(name==="Vanessa");});
+  it("blocks changing identity during replies",()=>{expect(hasConflictingRelationshipName("Sou a Vanessa da BM Crédito.","Camila")).toBe(true);expect(hasConflictingRelationshipName("Meu nome é Camila.","Camila")).toBe(false);expect(hasConflictingRelationshipName("Sou uma IA da empresa.","Camila")).toBe(false);});
+  it("keeps the approach returning-client based without invented salary or approval",()=>{expect(fixedRelationshipPlaybook.understanding).toContain("antigos clientes");expect(relationshipPersonaInstructions).toContain("Nunca presuma salário");expect(relationshipPersonaInstructions).toContain("compatíveis com a renda");expect(relationshipPersonaInstructions).toContain("transparência");});
+});
