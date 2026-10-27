@@ -3,6 +3,7 @@
 .company-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; }
 .company-grid .panel { margin:0; }
 .dispatch-layout { display:grid; grid-template-columns:290px minmax(0,1fr); gap:22px; align-items:start; }
+.dispatch-layout > *,.chat-workspace > * { min-width:0; }
 .routine-list { display:grid; gap:12px; }
 .routine-card { text-align:left; padding:20px; display:grid; gap:10px; background:var(--surface); }
 .routine-card strong { font-size:16px; }
@@ -43,8 +44,8 @@ progress { display:block; width:100%; height:9px; accent-color:var(--accent); ma
 .customer-chat-composer button { background:var(--accent); color:var(--surface); }
 .customer-chat > footer { padding:0 26px 20px; font-size:10px; color:var(--muted); line-height:1.5; }
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
-@media(max-width:1050px) { .dispatch-layout,.chat-workspace { grid-template-columns:1fr; } .routine-list,.chat-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .chat-list .inbox-pagination { grid-column:1/-1; } }
-@media(max-width:600px) { .routine-list,.chat-list { grid-template-columns:1fr; } .dispatch-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .chat-bubble { max-width:95%; } .panel .chat-composer { grid-template-columns:1fr; } .customer-chat-header,.customer-chat-profile,.customer-chat-history { padding-inline:18px; } .customer-chat-composer { padding:14px; } }
+@media(max-width:1050px) { .dispatch-layout,.chat-workspace { grid-template-columns:minmax(0,1fr); } .routine-list,.chat-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .chat-list .inbox-pagination { grid-column:1/-1; } }
+@media(max-width:600px) { .routine-list,.chat-list { grid-template-columns:minmax(0,1fr); } .section-heading { flex-wrap:wrap; overflow-wrap:anywhere; } .dispatch-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .chat-bubble { max-width:95%; } .panel .chat-composer { grid-template-columns:1fr; } .customer-chat-header,.customer-chat-profile,.customer-chat-history { padding-inline:18px; } .customer-chat-composer { padding:14px; } }
 .commercial-stats.stats-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
 .commercial-stats .stat-card { padding:18px 22px; }
 .commercial-stats .stat-card strong { margin:8px 0 0; font-size:30px; }
