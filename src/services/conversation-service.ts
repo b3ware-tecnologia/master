@@ -32,7 +32,7 @@ export async function applyEvolutionWebhook(transaction: Prisma.TransactionClien
     if (event.type === "ignored") return { accepted: 0, duplicates: 0, ignored: true };
     if (event.type === "connection") {
       // Compare atomically with polling; old callbacks must not replace a fresh state.
-      await transaction.messagingConnection.updateMany({ where: { id: connectionId, OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: event.occurredAt } }] }, data: { lastState: event.state, lastCheckedAt: event.occurredAt, lastErrorCode: null } });
+      await transaction.messagingConnection.updateMany({ where: { id: connectionId, OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: event.occurredAt } }] }, data: { lastState: event.state, ...(event.state==="OPEN"?{lastConnectedAt:event.occurredAt}:{}), lastCheckedAt: event.occurredAt, lastErrorCode: null } });
       return { accepted: 0, duplicates: 0, ignored: false };
     }
     if (event.type === "deliveries") {
@@ -101,7 +101,7 @@ export async function listConversations(actor: ConversationActor, page = 1) {
     await authorizeInboxActor(transaction, actor);
     const where = repliedConversationScope(actor);
     const [items, total] = await Promise.all([
-      transaction.conversation.findMany({ where, orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }], take: 25, skip: (page - 1) * 25, select: { id: true, remoteJid: true, displayName: true, connection:{select:{instanceName:true}}, lastMessageAt: true, customer: { select: { id: true, fullName: true } }, _count: { select: { messages: true } } } }),
+      transaction.conversation.findMany({ where, orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }], take: 25, skip: (page - 1) * 25, select: { id: true, remoteJid: true, displayName: true, connection:{select:{instanceName:true,displayName:true,displayPhone:true}}, lastMessageAt: true, customer: { select: { id: true, fullName: true } }, _count: { select: { messages: true } } } }),
       transaction.conversation.count({ where }),
     ]);
     return { items, total, page, pageSize: 25 };

@@ -1,0 +1,6 @@
+import {resolveAuthorizationContext,requireCapability} from "@/lib/auth/context";
+import {db} from "@/lib/db";
+import {AddWhatsAppNumber} from "@/components/add-whatsapp-number";
+import {MessagingConnectionStatus} from "@/components/messaging-connection";
+import {NumberCadenceSettings} from "@/components/company-settings";
+export default async function Page(){const context=await resolveAuthorizationContext();requireCapability(context,"messaging.manage");const numbers=await db.messagingConnection.findMany({where:{tenantId:context.tenantId},include:{cadence:true},orderBy:{createdAt:"asc"}});return <><header className="page-header"><div><h1>WhatsApp</h1><p>Conecte os números da BM Crédito e acompanhe quando estiveram disponíveis.</p></div></header><AddWhatsAppNumber/>{!numbers.length&&<section className="panel empty-state"><h2>Conecte seu primeiro número</h2><p>Informe o telefone acima. Depois autorize a conexão no aplicativo WhatsApp.</p></section>}{numbers.map((number,i)=><section className="panel" key={number.id}><MessagingConnectionStatus initial={number} canManage title={number.displayName??`WhatsApp ${i+1}`}/><details><summary>Horários e limites deste número</summary><NumberCadenceSettings connection={number}/></details></section>)}</>;}

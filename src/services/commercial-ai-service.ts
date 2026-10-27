@@ -1,3 +1,5 @@
+import {operationalTenantScope} from "@/lib/company-mode";
+import {runtimeAIConfiguration} from "@/integrations/openai-credential";
 import { createHash, randomUUID } from "node:crypto";
 import type { CommercialAIJob, Prisma } from "@prisma/client";
 import { AIUnavailable } from "@/domain/conversation-ai";
@@ -5,7 +7,7 @@ import { playbookInterpretationSchema } from "@/domain/commercial";
 import { roleCapabilities, roleAccessScope } from "@/domain/access";
 import { ConflictError } from "@/domain/errors";
 import { db } from "@/lib/db";
-import { aiConfiguration, configuredAIModel } from "@/integrations/ai-gateway";
+import { configuredAIModel } from "@/integrations/ai-gateway";
 import { ConciergePromptVersion, structuredCommercialResponse, validateConciergeDecision, type ConciergeInput } from "@/integrations/credit-concierge";
 import { authorizeCRMActor, type CRMActor } from "@/services/crm-service";
 import { commercialCustomerScope, currentCreditKnowledge } from "@/services/commercial-service";
@@ -36,13 +38,13 @@ async function source(tx: Prisma.TransactionClient, job: CommercialAIJob) {
   return { actor, input, fingerprint, entityVersion };
 }
 export async function processCommercialAIBatch(generator?: typeof structuredCommercialResponse) {
-  assertTestHooksAllowed(!!generator); if (!aiConfiguration().configured) return 0;
-  await db.commercialAIJob.updateMany({ where: { status: "RUNNING", startedAt: { lt: new Date(Date.now() - 300_000) } }, data: { status: "FAILED", errorCode: "WORKER_INTERRUPTED", lockToken: null } });
+  assertTestHooksAllowed(!!generator); if (!(await runtimeAIConfiguration()).configured) return 0;
+  await db.commercialAIJob.updateMany({ where: {...(await operationalTenantScope()), status: "RUNNING", startedAt: { lt: new Date(Date.now() - 300_000) } }, data: { status: "FAILED", errorCode: "WORKER_INTERRUPTED", lockToken: null } });
   // Requests made before a key existed are not silently activated later. Create a new authorized request.
-  const jobs = await db.commercialAIJob.findMany({ where: { status: "QUEUED", tenant: { status: "ACTIVE" } }, take: 3, orderBy: { createdAt: "asc" } }); let processed = 0;
+  const jobs = await db.commercialAIJob.findMany({ where: {...(await operationalTenantScope()), status: "QUEUED", tenant: { status: "ACTIVE" } }, take: 3, orderBy: { createdAt: "asc" } }); let processed = 0;
   for (const job of jobs) {
     const token = randomUUID();
-    if (!(await db.commercialAIJob.updateMany({ where: { id: job.id, status: "QUEUED" }, data: { status: "RUNNING", startedAt: new Date(), lockToken: token, model: configuredAIModel(), promptVersion: ConciergePromptVersion } })).count) continue;
+    if (!(await db.commercialAIJob.updateMany({ where: {...(await operationalTenantScope()), id: job.id, status: "QUEUED" }, data: { status: "RUNNING", startedAt: new Date(), lockToken: token, model: configuredAIModel(), promptVersion: ConciergePromptVersion } })).count) continue;
     try {
       const before = await db.$transaction((tx) => source(tx, job)); const output = await (generator ?? structuredCommercialResponse)(job.kind === "PLAYBOOK" ? "PLAYBOOK" : "CONCIERGE", before.input);
       await db.$transaction(async (tx) => {
@@ -55,7 +57,7 @@ export async function processCommercialAIBatch(generator?: typeof structuredComm
         await tx.commercialAIJob.update({ where: { id: job.id }, data: { status: "COMPLETED", lockToken: null, result: { decision, tools: output.trace, jev: output.jev ?? null, simulation: job.kind === "TEST_AGENT", writesExecuted: false, messagesSent: 0 }, inputTokens: output.inputTokens, outputTokens: output.outputTokens, completedAt: new Date() } });
         await recordEvent(tx, { tenantId: job.tenantId, actorUserId: job.requestedById, action: "COMMERCIAL_AI_JOB_COMPLETED", entityType: "CommercialAIJob", entityId: job.id, metadata: { kind: job.kind, tools: output.trace.map((v) => v.name), promptVersion: ConciergePromptVersion }, idempotencyKey: `commercial-job:${job.id}` });
       }); processed++;
-    } catch (error) { await db.commercialAIJob.updateMany({ where: { id: job.id, status: "RUNNING", lockToken: token }, data: { status: "FAILED", lockToken: null, errorCode: error instanceof AIUnavailable ? error.code : "ACCESS_OR_CONTEXT_CHANGED", completedAt: new Date() } }); }
+    } catch (error) { await db.commercialAIJob.updateMany({ where: {...(await operationalTenantScope()), id: job.id, status: "RUNNING", lockToken: token }, data: { status: "FAILED", lockToken: null, errorCode: error instanceof AIUnavailable ? error.code : "ACCESS_OR_CONTEXT_CHANGED", completedAt: new Date() } }); }
   }
   return processed;
 }

@@ -150,6 +150,7 @@ enum MatchLevel {
 }
 
 model Tenant {
+  aiIntegration            CompanyAIIntegration?
   playbooks                CampaignPlaybook[]
   opportunities            Opportunity[]
   commercialJobs           CommercialAIJob[]
@@ -197,6 +198,15 @@ model Tenant {
   aiExecutions             AIExecution[]
 
   @@index([status])
+}
+
+model CompanyAIIntegration {
+  tenantId     String    @id
+  tenant       Tenant    @relation(fields: [tenantId], references: [id])
+  encryptedKey String
+  keySuffix    String
+  verifiedAt   DateTime?
+  updatedAt    DateTime  @updatedAt
 }
 
 model User {
@@ -510,6 +520,7 @@ model MessagingConnection {
   provider            String                 @default("EVOLUTION")
   enabled             Boolean                @default(true)
   lastState           String                 @default("UNCHECKED")
+  lastConnectedAt     DateTime?
   lastCheckedAt       DateTime?
   lastErrorCode       String?
   createdAt           DateTime               @default(now())
@@ -1152,6 +1163,7 @@ model OutreachSession {
   conversationId String?
   control        String               @default("AI")
   version        Int                  @default(0)
+  handedOffAt    DateTime?
   handoffReason  String?
   lastSentAt     DateTime?
   followUpQueued Boolean              @default(false)

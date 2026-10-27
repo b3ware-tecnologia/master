@@ -1,3 +1,5 @@
+import {operationalTenantScope} from "@/lib/company-mode";
+import {runtimeAIConfiguration} from "@/integrations/openai-credential";
 import {createHmac,randomUUID,timingSafeEqual} from "node:crypto";
 import {z} from "zod";
 import type {Prisma} from "@prisma/client";
@@ -9,7 +11,7 @@ import {authorizeCRMActor,type CRMActor} from "@/services/crm-service";
 import {customerScope} from "@/services/customer-scope";
 import {commercialActorId,currentCreditKnowledge} from "@/services/commercial-service";
 import {campaignActor} from "@/services/outreach-authority";
-import {aiConfiguration} from "@/integrations/ai-gateway";
+
 import {structuredCommercialResponse,validateConciergeDecision,type ConciergeInput} from "@/integrations/credit-concierge";
 import {fixedRelationshipPlaybook} from "@/domain/relationship-persona";
 import {assertTestHooksAllowed} from "@/services/test-hooks";
@@ -40,8 +42,8 @@ export async function postPublicWebChat(id:string,key:string,value:unknown){cons
   if(await tx.webChatMessage.count({where:{chatId:id,createdAt:{gte:new Date(Date.now()-60000)},role:"CUSTOMER"}})>=12)throw new ConflictError("Aguarde um momento antes de enviar outra mensagem.");
   const stored=await tx.webChatMessage.create({data:{tenantId:chat.tenantId,chatId:id,role:"CUSTOMER",text:input.message,requestKey:input.requestKey}});
   await tx.opportunity.upsert({where:{sessionId:chat.sessionId},create:{tenantId:chat.tenantId,customerId:chat.session.customerId,campaignId:chat.session.campaignId,sessionId:chat.sessionId,conversationId:chat.session.conversationId,stage:"RESPONDED",summary:"Resposta recebida pelo chat web."},update:{}});
-  const configured=aiConfiguration().configured;
-  await tx.outreachSession.update({where:{id:chat.sessionId},data:{webChatActive:true,respondedAt:chat.session.respondedAt??new Date(),version:{increment:1},...(!configured&&chat.session.control==="AI"?{control:"HUMAN",handoffReason:"AI_HANDOFF"}:{})}});
+  const configured=(await runtimeAIConfiguration()).configured;
+  await tx.outreachSession.update({where:{id:chat.sessionId},data:{webChatActive:true,respondedAt:chat.session.respondedAt??new Date(),version:{increment:1},...(!configured&&chat.session.control==="AI"?{control:"HUMAN",handedOffAt:new Date(),handoffReason:"AI_HANDOFF"}:{})}});
   await tx.outreachTurn.updateMany({where:{sessionId:chat.sessionId,status:{in:["QUEUED","RUNNING","READY"]}},data:{status:"CANCELLED",lockToken:null,errorCode:"WEB_CHAT_ACTIVE"}});
   await tx.outboundDispatch.updateMany({where:{tenantId:chat.tenantId,plan:{outreachTurn:{sessionId:chat.sessionId}},status:"QUEUED"},data:{status:"CANCELLED",reasons:["WEB_CHAT_ACTIVE"],version:{increment:1}}});
   await tx.webChat.update({where:{id},data:{status:chat.session.control==="AI"&&configured?"QUEUED":"IDLE",requestedAt:new Date(),version:{increment:1},lockToken:null}});
@@ -49,7 +51,7 @@ export async function postPublicWebChat(id:string,key:string,value:unknown){cons
 });}
 export async function readStaffWebChat(actor:CRMActor,id?:string){return db.$transaction(async tx=>{
   await authorizeCRMActor(tx,actor,"crm.read");const where={tenantId:actor.tenantId,session:{customer:"context" in actor?customerScope(actor.context):{tenantId:actor.tenantId}},messages:{some:{role:"CUSTOMER"}},...(id?{id}:{})};
-  const chats=await tx.webChat.findMany({where,take:100,orderBy:{requestedAt:"desc"},select:{id:true,status:true,requestedAt:true,session:{select:{id:true,version:true,control:true,personaName:true,customerId:true,customer:{select:{fullName:true,assignment:{select:{assignedMembership:{select:{user:{select:{name:true}}}}}}}},connection:{select:{instanceName:true}},campaign:{select:{name:true}}}},...(id?{messages:{orderBy:[{createdAt:"desc"},{id:"desc"}],take:200}}:{})}});
+  const chats=await tx.webChat.findMany({where,take:100,orderBy:{requestedAt:"desc"},select:{id:true,status:true,requestedAt:true,session:{select:{id:true,version:true,control:true,personaName:true,customerId:true,customer:{select:{fullName:true,assignment:{select:{assignedMembership:{select:{user:{select:{name:true}}}}}}}},connection:{select:{instanceName:true,displayName:true,displayPhone:true}},campaign:{select:{name:true}}}},...(id?{messages:{orderBy:[{createdAt:"desc"},{id:"desc"}],take:200}}:{})}});
   if(id&&!chats.length)throw new NotFoundError();return chats.map(c=>({...c,messages:c.messages?.slice().reverse()??[]}));
 });}
 export async function replyStaffWebChat(actor:CRMActor,id:string,value:unknown){const input=messageInput.parse(value);return db.$transaction(async tx=>{
@@ -59,16 +61,16 @@ export async function replyStaffWebChat(actor:CRMActor,id:string,value:unknown){
   await lockMessagingTarget(tx,actor.tenantId,chat.session.customerId);
   if(chat.session.control==="STOPPED")throw new ConflictError("Este atendimento foi encerrado.");
   const prior=await tx.webChatMessage.findUnique({where:{chatId_requestKey:{chatId:id,requestKey:input.requestKey}}});if(prior){if(prior.role!=="HUMAN"||prior.actorId!==commercialActorId(actor)||prior.text!==input.message)throw new ConflictError("Solicitação já usada.");return prior;}
-  await tx.outreachSession.update({where:{id:chat.sessionId},data:{control:"HUMAN",version:{increment:1},handoffReason:"ASSUMED_BY_TEAM"}});
+  await tx.outreachSession.update({where:{id:chat.sessionId},data:{control:"HUMAN",handedOffAt:new Date(),version:{increment:1},handoffReason:"ASSUMED_BY_TEAM"}});
   await tx.webChat.update({where:{id},data:{status:"IDLE",lockToken:null,version:{increment:1}}});
   const stored=await tx.webChatMessage.create({data:{tenantId:actor.tenantId,chatId:id,role:"HUMAN",actorId:commercialActorId(actor),text:input.message,requestKey:input.requestKey}});
   await recordEvent(tx,{tenantId:actor.tenantId,actorUserId:commercialActorId(actor),action:"WEB_CHAT_HUMAN_MESSAGE",entityType:"WebChatMessage",entityId:stored.id});return {id:stored.id};
 });}
 export async function processWebChatBatch(generator?:typeof structuredCommercialResponse){
-  assertTestHooksAllowed(!!generator);if(!aiConfiguration().configured)return 0;
-  await db.webChat.updateMany({where:{status:"RUNNING",startedAt:{lt:new Date(Date.now()-180000)}},data:{status:"FAILED",lockToken:null}});
-  const jobs=await db.webChat.findMany({where:{status:"QUEUED",session:{control:"AI",webChatActive:true}},take:3});let processed=0;
-  for(const job of jobs){const token=randomUUID();if(!(await db.webChat.updateMany({where:{id:job.id,status:"QUEUED",version:job.version},data:{status:"RUNNING",lockToken:token,startedAt:new Date()}})).count)continue;
+  assertTestHooksAllowed(!!generator);if(!(await runtimeAIConfiguration()).configured)return 0;
+  await db.webChat.updateMany({where:{...(await operationalTenantScope()),status:"RUNNING",startedAt:{lt:new Date(Date.now()-180000)}},data:{status:"FAILED",lockToken:null}});
+  const jobs=await db.webChat.findMany({where:{...(await operationalTenantScope()),status:"QUEUED",session:{control:"AI",webChatActive:true}},take:3});let processed=0;
+  for(const job of jobs){const token=randomUUID();if(!(await db.webChat.updateMany({where:{...(await operationalTenantScope()),id:job.id,status:"QUEUED",version:job.version},data:{status:"RUNNING",lockToken:token,startedAt:new Date()}})).count)continue;
     try{
       const source=await db.$transaction(async tx=>{const chat=await tx.webChat.findUniqueOrThrow({where:{id:job.id},include:{session:{include:{campaign:{include:{playbook:true}},customer:true}}}});await campaignActor(tx,chat.session.campaign);const messages=await tx.webChatMessage.findMany({where:{chatId:chat.id,tenantId:job.tenantId},orderBy:[{createdAt:"desc"},{id:"desc"}],take:30});const prior=chat.session.conversationId?await tx.conversationMessage.findMany({where:{tenantId:job.tenantId,conversationId:chat.session.conversationId},orderBy:[{occurredAt:"desc"},{id:"desc"}],take:15,select:{id:true,direction:true,kind:true,text:true}}):[];const organization=await tx.tenant.findUniqueOrThrow({where:{id:job.tenantId},select:{name:true,slug:true}});const input:ConciergeInput={agentName:chat.session.personaName,organizationName:organization.slug==="demonstracao-crm-staging"?"BM Crédito":organization.name,stage:"REPLY",objective:fixedRelationshipPlaybook.objective,customer:{firstName:chat.session.customer.fullName.split(" ")[0],facts:[]},messages:[...prior.reverse(),...messages.reverse().map(m=>({id:m.id,direction:m.role==="CUSTOMER"?"INBOUND":"OUTBOUND",kind:"TEXT",text:m.text}))],...(chat.session.campaign.playbook?{playbook:fixedRelationshipPlaybook}:{}),knowledge:await currentCreditKnowledge(tx,job.tenantId),now:new Date().toISOString()};return {chat,input};});
       const output=await(generator??structuredCommercialResponse)("CONCIERGE",source.input);const decision=validateConciergeDecision(output.result,source.input);
@@ -76,11 +78,11 @@ export async function processWebChatBatch(generator?:typeof structuredCommercial
         const current=await tx.webChat.findFirst({where:{id:job.id,status:"RUNNING",lockToken:token,version:job.version,session:{control:"AI",webChatActive:true,customer:{status:"ACTIVE"}}}});if(!current)return;
         const handoff=decision.handoff||["HUMAN_REQUEST","INTEREST","COMPLAINT"].includes(decision.intent);const stop=["OPT_OUT","NOT_INTERESTED","WRONG_NUMBER"].includes(decision.intent);
         if(decision.response&&!stop)await tx.webChatMessage.create({data:{tenantId:job.tenantId,chatId:job.id,role:"AI",text:decision.response,requestKey:`ai:${job.version}`}});
-        if(handoff||stop)await tx.outreachSession.update({where:{id:job.sessionId},data:{control:stop?"STOPPED":"HUMAN",handoffReason:stop?"CUSTOMER_OPTED_OUT":"AI_HANDOFF",version:{increment:1}}});
+        if(handoff||stop)await tx.outreachSession.update({where:{id:job.sessionId},data:{control:stop?"STOPPED":"HUMAN",...(!stop?{handedOffAt:new Date()}:{}),handoffReason:stop?"CUSTOMER_OPTED_OUT":"AI_HANDOFF",version:{increment:1}}});
         if(decision.intent==="OPT_OUT"){const phones=await tx.customerIdentifier.findMany({where:{tenantId:job.tenantId,customerId:source.chat.session.customerId,type:"PHONE"}});for(const p of phones)await registerDoNotContact(tx,job.tenantId,p.normalizedValue,"Pedido recebido no chat web.","WEB_CHAT",job.id);}
         await tx.opportunity.upsert({where:{sessionId:job.sessionId},create:{tenantId:job.tenantId,customerId:source.chat.session.customerId,campaignId:source.chat.session.campaignId,sessionId:job.sessionId,stage:decision.intent==="OPT_OUT"?"DO_NOT_CONTACT":stop?"NOT_INTERESTED":handoff?"HUMAN_HANDOFF":"AI_CONVERSATION",summary:decision.summary},update:{summary:decision.summary,stage:decision.intent==="OPT_OUT"?"DO_NOT_CONTACT":stop?"NOT_INTERESTED":handoff?"HUMAN_HANDOFF":"AI_CONVERSATION",version:{increment:1}}});
         await tx.webChat.update({where:{id:job.id},data:{status:"IDLE",lockToken:null,processedAt:new Date()}});
       });processed++;
-    }catch(error){await db.outreachSession.updateMany({where:{id:job.sessionId,tenantId:job.tenantId,control:"AI"},data:{control:"HUMAN",handoffReason:"AI_HANDOFF",version:{increment:1}}});await db.webChat.updateMany({where:{id:job.id,lockToken:token},data:{status:error instanceof AIUnavailable&&error.code==="NOT_CONFIGURED"?"WAITING_CONFIGURATION":"FAILED",lockToken:null}});}
+    }catch(error){await db.outreachSession.updateMany({where:{...(await operationalTenantScope()),id:job.sessionId,tenantId:job.tenantId,control:"AI"},data:{control:"HUMAN",handedOffAt:new Date(),handoffReason:"AI_HANDOFF",version:{increment:1}}});await db.webChat.updateMany({where:{...(await operationalTenantScope()),id:job.id,lockToken:token},data:{status:error instanceof AIUnavailable&&error.code==="NOT_CONFIGURED"?"WAITING_CONFIGURATION":"FAILED",lockToken:null}});}
   }return processed;
 }

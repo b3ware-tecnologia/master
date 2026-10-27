@@ -1,10 +1,12 @@
+import {operationalTenantScope} from "@/lib/company-mode";
+import {runtimeAIConfiguration} from "@/integrations/openai-credential";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type AIExecution } from "@prisma/client";
 import { roleCapabilities } from "@/domain/access";
 import { AIUnavailable, aiInputSchema, analysisSchema } from "@/domain/conversation-ai";
 import { AuthorizationError, ConflictError, NotFoundError } from "@/domain/errors";
 import { db } from "@/lib/db";
-import { aiConfiguration, analyzeWithGateway, configuredAIModel, PromptRegistry } from "@/integrations/ai-gateway";
+import { analyzeWithGateway, configuredAIModel, PromptRegistry } from "@/integrations/ai-gateway";
 import { authorizeConversationActor, type ConversationActor } from "@/services/conversation-service";
 import { recordEvent } from "@/services/events";
 import { assertTestHooksAllowed } from "@/services/test-hooks";
@@ -33,7 +35,7 @@ export async function getConversationAnalysis(actor: ConversationActor, conversa
     const current = await source(transaction, actor.tenantId, conversationId);
     const latest = await transaction.aIExecution.findFirst({ where: { tenantId: actor.tenantId, conversationId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { ...publicSelect, fingerprint: true } });
     const execution = latest ? { id: latest.id, status: latest.status, model: latest.model, promptVersion: latest.promptVersion, result: latest.result, errorCode: latest.errorCode, createdAt: latest.createdAt, completedAt: latest.completedAt, decision: latest.decision, usage: latest.usage } : null;
-    return { ...aiConfiguration(), execution, stale: latest ? latest.fingerprint !== current.fingerprint : false, customerLinked: !!current.conversation.customerId };
+    return { ...(await runtimeAIConfiguration()), execution, stale: latest ? latest.fingerprint !== current.fingerprint : false, customerLinked: !!current.conversation.customerId };
   });
 }
 export async function requestConversationAnalysis(actor: ConversationActor, conversationId: string) {
@@ -41,7 +43,7 @@ export async function requestConversationAnalysis(actor: ConversationActor, conv
     await authorizeConversationActor(transaction, actor);
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`ai-request:${actor.tenantId}`}, 0))`;
     const current = await source(transaction, actor.tenantId, conversationId, true);
-    if (!aiConfiguration().configured) throw new AIUnavailable("NOT_CONFIGURED");
+    if (!(await runtimeAIConfiguration()).configured) throw new AIUnavailable("NOT_CONFIGURED");
     const model = configuredAIModel();
     if (!current.input.messages.some((message) => !!message.text?.trim())) throw new ConflictError("Esta conversa ainda não tem texto para análise.");
     const existing = await transaction.aIExecution.findFirst({ where: { tenantId: actor.tenantId, conversationId, fingerprint: current.fingerprint, promptVersion: PromptRegistry.version, model, status: { not: "FAILED" } }, orderBy: { createdAt: "desc" }, select: publicSelect });
@@ -62,7 +64,7 @@ async function workerAuthorize(transaction: Prisma.TransactionClient, execution:
 export async function processAIExecution(executionId: string, fetcher?: typeof fetch) {
   assertTestHooksAllowed(!!fetcher);
   const lockToken = randomUUID();
-  const claim = await db.aIExecution.updateMany({ where: { id: executionId, status: "QUEUED" }, data: { status: "RUNNING", lockToken, startedAt: new Date() } });
+  const claim = await db.aIExecution.updateMany({ where: {...(await operationalTenantScope()), id: executionId, status: "QUEUED" }, data: { status: "RUNNING", lockToken, startedAt: new Date() } });
   if (!claim.count) return false;
   try {
     const execution = await db.aIExecution.findUniqueOrThrow({ where: { id: executionId } });
@@ -78,14 +80,14 @@ export async function processAIExecution(executionId: string, fetcher?: typeof f
     });
   } catch (error) {
     const code = error instanceof AIUnavailable ? error.code : error instanceof AuthorizationError || error instanceof NotFoundError ? "ACCESS_REVOKED" : "INTERNAL_ERROR";
-    await db.aIExecution.updateMany({ where: { id: executionId, status: "RUNNING", lockToken }, data: { status: "FAILED", errorCode: code, completedAt: new Date(), lockToken: null } });
+    await db.aIExecution.updateMany({ where: {...(await operationalTenantScope()), id: executionId, status: "RUNNING", lockToken }, data: { status: "FAILED", errorCode: code, completedAt: new Date(), lockToken: null } });
   }
   return true;
 }
 export async function processAIBatch() {
   // A lost lease can mean the provider charged the call. Do not retry automatically.
-  await db.aIExecution.updateMany({ where: { status: "RUNNING", startedAt: { lt: new Date(Date.now() - 120_000) } }, data: { status: "FAILED", errorCode: "EXECUTION_INTERRUPTED", completedAt: new Date(), lockToken: null } });
-  const jobs = await db.aIExecution.findMany({ where: { status: "QUEUED" }, orderBy: { createdAt: "asc" }, take: 5, select: { id: true } });
+  await db.aIExecution.updateMany({ where: {...(await operationalTenantScope()), status: "RUNNING", startedAt: { lt: new Date(Date.now() - 120_000) } }, data: { status: "FAILED", errorCode: "EXECUTION_INTERRUPTED", completedAt: new Date(), lockToken: null } });
+  const jobs = await db.aIExecution.findMany({ where: {...(await operationalTenantScope()), status: "QUEUED" }, orderBy: { createdAt: "asc" }, take: 5, select: { id: true } });
   for (const job of jobs) await processAIExecution(job.id);
 }
 export async function saveAnalysisToCRM(actor: ConversationActor, conversationId: string, executionId: string) {

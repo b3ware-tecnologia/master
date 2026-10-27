@@ -1,3 +1,4 @@
+import {operationalTenantScope} from "@/lib/company-mode";
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -50,7 +51,7 @@ export async function changeOpportunityTask(actor: CRMActor, opportunityId: stri
   });
 }
 export async function processCommercialFollowUps() {
-  const jobs = await db.opportunityTask.findMany({ where: { status: "SCHEDULED", dueAt: { lte: new Date() }, opportunity: { session: { control: "AI", campaign: { status: "ACTIVE", endsAt: { gt: new Date() } } } } }, take: 20 });
+  const jobs = await db.opportunityTask.findMany({ where: {...(await operationalTenantScope()), status: "SCHEDULED", dueAt: { lte: new Date() }, opportunity: { session: { control: "AI", campaign: { status: "ACTIVE", endsAt: { gt: new Date() } } } } }, take: 20 });
   for (const job of jobs) await db.$transaction(async (tx) => {
     const before = await tx.opportunity.findUniqueOrThrow({ where: { id: job.opportunityId } });
     await lockMessagingTarget(tx, job.tenantId, before.customerId);

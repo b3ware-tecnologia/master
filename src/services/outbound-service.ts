@@ -1,3 +1,4 @@
+import {operationalTenantScope} from "@/lib/company-mode";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type OutboundDispatch } from "@prisma/client";
 import { z } from "zod";
@@ -165,9 +166,9 @@ async function finish(transaction: Prisma.TransactionClient, item: OutboundDispa
 }
 export async function processOutboundBatch(runtime = defaultRuntime) {
   // Unknown outcomes are never automatically retried, including a crashed worker after the durable claim.
-  const stale = await db.outboundDispatch.findMany({ where: { status: "SENDING", startedAt: { lt: new Date(Date.now() - 120_000) } }, take: 10 });
+  const stale = await db.outboundDispatch.findMany({ where: {...(await operationalTenantScope()), status: "SENDING", startedAt: { lt: new Date(Date.now() - 120_000) } }, take: 10 });
   for (const item of stale) await db.$transaction(async (transaction) => { await lockCRMCustomer(transaction, item.tenantId, item.customerId); await lockMessagingTarget(transaction, item.tenantId, item.customerId); const current = await transaction.outboundDispatch.findUniqueOrThrow({ where: { id: item.id } }); if (current.status === "SENDING" && current.claimToken) await finish(transaction, current, current.claimToken, "UNCERTAIN", ["WORKER_INTERRUPTED"]); });
-  const queued = await db.outboundDispatch.findMany({ where: { status: "QUEUED", nextAttemptAt: { lte: new Date() }, connection: { OR: [{ pausedUntil: null }, { pausedUntil: { lte: new Date() } }] } }, orderBy: { createdAt: "asc" }, take: 5 });
+  const queued = await db.outboundDispatch.findMany({ where: {...(await operationalTenantScope()), status: "QUEUED", nextAttemptAt: { lte: new Date() }, connection: { OR: [{ pausedUntil: null }, { pausedUntil: { lte: new Date() } }] } }, orderBy: { createdAt: "asc" }, take: 5 });
   let processed = 0;
   for (const candidate of queued) {
     const claimToken = randomUUID();

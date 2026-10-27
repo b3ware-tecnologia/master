@@ -19,6 +19,11 @@ import {reviewContactList} from "@/services/list-review-service";
 import {downloadMessageMedia} from "@/services/message-media-service";
 import {NotFoundError} from "@/domain/errors";
 import {fixedRelationshipPlaybook,fixedRelationshipVersion,hasRelationshipIntroduction} from "@/domain/relationship-persona";
+import {companyKPIs} from "@/services/company-kpi-service";
+import {encryptIntegrationSecret} from "@/lib/integration-secret";
+import {openAICredential} from "@/integrations/openai-credential";
+import {operationalTenantScope} from "@/lib/company-mode";
+import {processCommercialAIBatch} from "@/services/commercial-ai-service";
 async function main(){
   assertTestHooksAllowed(true);const schema=process.env.ACCEPTANCE_ISOLATED_SCHEMA;assert(schema&&/^phase15_acceptance_[a-f0-9]{32}$/.test(schema));assert.equal(new URL(process.env.DATABASE_URL!).searchParams.get("schema"),schema);
   let unexpectedNetworkCalls=0;globalThis.fetch=async()=>{unexpectedNetworkCalls++;throw new Error("Unexpected external call in isolated acceptance");};
@@ -53,7 +58,7 @@ async function main(){
   const generator:Parameters<typeof processOutreachBatch>[0]=async input=>({result:{message:`Oi, sou a ${input.agentName} da ${input.organizationName}. Você tem um tempinho para conversar?`,intent:"INTRODUCTION",nextStep:"CONTINUE",evidenceIds:input.messages.slice(-1).map(v=>v.id)},inputTokens:100,outputTokens:40});
   await processOutreachBatch(generator);const sessions=await db.outreachSession.findMany({where:{campaignId:campaign.id},orderBy:{createdAt:"asc"}});assert.equal(sessions.length,5);assert(sessions.every(s=>!!s.personaName));assert(sessions.some(s=>s.customerId===contacts[54].id));assert.equal(new Set(sessions.map(s=>s.connectionId)).size,5);
   let sends=0;const sentTexts:{message:string;instance:string;providerId:string}[]=[];const runtime={enabled:()=>true,configured:()=>true,provider:()=>({name:"STUB",getConnectionState:async()=>"OPEN" as const,sendText:async(instance:string,recipient:string,message:string)=>{sends++;const providerId=`synthetic-send-${sends}`;sentTexts.push({message,instance,providerId});return {providerMessageId:providerId,remoteJid:`${recipient}@s.whatsapp.net`};}})};
-  await processOutboundBatch(runtime);assert.equal(sends,5);assert(sentTexts.every(s=>s.message.includes("/chat/")&&s.message.includes("#key=")));
+  await processOutboundBatch(runtime);if(sends!==5)console.error("SYNTHETIC_DISPATCH_DIAGNOSTIC",await db.outreachTurn.findMany({select:{status:true,errorCode:true}}),await db.outboundDispatch.findMany({select:{status:true,reasons:true}}));assert.equal(sends,5);assert(sentTexts.every(s=>s.message.includes("/chat/")&&s.message.includes("#key=")));
   for(const session of sessions){const turn=await db.outreachTurn.findFirstOrThrow({where:{sessionId:session.id,kind:"INITIAL"}});assert(hasRelationshipIntroduction(turn.message!,session.personaName,tenant.name));}
   await receiveEvolutionWebhook(connections[0].id,connectionWebhookToken(connections[0].id),{event:"messages.upsert",instance:connections[0].instanceName,data:{key:{id:"synthetic-outbound-only",remoteJid:"15555123456@s.whatsapp.net",fromMe:true},message:{conversation:"Mensagem sintética sem resposta."},messageTimestamp:Math.floor(Date.now()/1000)}});
   assert.equal((await listConversations(master)).total,0);
@@ -85,6 +90,21 @@ async function main(){
   process.env.OPENAI_API_KEY="";const opportunity=await db.opportunity.findUniqueOrThrow({where:{sessionId:first.id}});assert.equal((await enqueueCommercialJob(consultant,{kind:"COPILOT",entityId:opportunity.id,requestKey:randomUUID()})).status,"WAITING_CONFIGURATION");
   await db.membership.update({where:{id:consultant.context.membershipId},data:{status:"SUSPENDED"}});await assert.rejects(readStaffWebChat(consultant,chatId));await assert.rejects(sendHumanChatReply(consultant,updated.conversationId,{message:"Revoked",requestKey:randomUUID(),confirmed:true}));
   await db.webChat.update({where:{id:chatId},data:{expiresAt:new Date(Date.now()-1000)}});await assert.rejects(readPublicWebChat(chatId,key));
+  const kpis=await companyKPIs(master.context);assert.equal(kpis.sent,5);assert.equal(kpis.conversations,3);assert.equal(kpis.human,3);assert.equal(kpis.noResponse,2);
+  await db.outreachSession.update({where:{id:third.id},data:{control:"AI"}});assert.equal((await companyKPIs(master.context)).human,3);
+  const foreignKPIs=await companyKPIs(outsider.context);assert.equal(foreignKPIs.sent,0);assert.equal(foreignKPIs.conversations,0);
+  const {id:_id,createdAt:_created,updatedAt:_updated,...campaignFields}=campaign;void _id;void _created;void _updated;
+  const repeat=await db.outreachCampaign.create({data:{...campaignFields,id:randomUUID(),requestKey:randomUUID(),status:"DRAFT"}});
+  await db.outreachSession.create({data:{tenantId:tenant.id,campaignId:repeat.id,customerId:first.customerId,connectionId:first.connectionId,lastSentAt:new Date()}});
+  assert.equal((await companyKPIs(master.context)).sent,5);assert.equal((await companyKPIs(master.context)).noResponse,2);
+  process.env.INTEGRATION_ENCRYPTION_KEY="synthetic-protection-key-for-isolated-tests";
+  process.env.BM_SINGLE_COMPANY_MODE="true";process.env.BM_COMPANY_SLUG=tenant.slug;
+  await db.companyAIIntegration.create({data:{tenantId:tenant.id,encryptedKey:encryptIntegrationSecret("sk-synthetic-company-key",tenant.id),keySuffix:"-key",verifiedAt:new Date()}});
+  assert.equal(await openAICredential(),"sk-synthetic-company-key");assert.deepEqual(await operationalTenantScope(),{tenantId:tenant.id});
+  const foreignJob=await db.commercialAIJob.create({data:{tenantId:foreign.id,requestedById:outsider.context.userId,membershipId:outsider.context.membershipId,kind:"COPILOT",entityId:"foreign-only",requestKey:randomUUID(),inputHash:"synthetic",payload:{},status:"QUEUED"}});
+  assert.equal(await processCommercialAIBatch(async()=>{throw new Error("Other company must never use the production key");}),0);
+  assert.equal((await db.commercialAIJob.findUniqueOrThrow({where:{id:foreignJob.id}})).status,"QUEUED");
+  process.env.BM_SINGLE_COMPANY_MODE="false";
   assert.equal(unexpectedNetworkCalls,0);
   console.log("PHASE_15_ACCEPTANCE_JSON="+JSON.stringify({result:"PASS",syntheticNumbers:50,routeContacts:52,prioritizedRoute:true,realOpenAICalls:0,realOutboundCalls:0,simulatedSends:sends,initialWebLink:true,webChatAfterOriginUnavailable:true,personalHandoff:true,replyOnOriginalNumber:true,repliesOnlyInbox:true,deliveryReceiptAttribution:true,tenantPortfolioAndRevocation:true,humanWinsGenerationRace:true,listReviewPreservesOptOut:true}));
 }

@@ -43,6 +43,11 @@ export class EvolutionProvider implements WebhookMessagingProvider, SendingMessa
     } catch { throw new MessagingProviderUnavailable("INVALID_RESPONSE"); }
     // A timeout, HTTP error or malformed response may follow an accepted send. Never retry here.
   }
+  async getPhoneNumber(instanceName:string){
+    this.validateInstance(instanceName);
+    const response=await this.request("/instance/fetchInstances");
+    try{const values=z.array(z.object({name:z.string(),ownerJid:z.string().nullable().optional()})).parse(await response.json());const owner=values.find(v=>v.name===instanceName)?.ownerJid;return owner&&/^[1-9]\d{9,14}@s\.whatsapp\.net$/.test(owner)?owner.split("@")[0]:null;}catch{throw new MessagingProviderUnavailable("INVALID_RESPONSE");}
+  }
   async getMessageMedia(instanceName: string, key: { id: string; remoteJid: string; fromMe: boolean }, kind: MessageKind) {
     this.validateInstance(instanceName);
     if (!key.id || key.id.length > 200 || !/^[A-Za-z0-9_-]{1,80}@(s\.whatsapp\.net|lid)$/.test(key.remoteJid) || !["IMAGE", "AUDIO", "VIDEO", "DOCUMENT"].includes(kind)) throw new MessageMediaUnavailable("INVALID_MEDIA");

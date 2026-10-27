@@ -1,3 +1,5 @@
+import {operationalTenantScope} from "@/lib/company-mode";
+import {runtimeAIConfiguration} from "@/integrations/openai-credential";
 import {randomUUID} from "node:crypto";
 import {Prisma} from "@prisma/client";
 import {z} from "zod";
@@ -11,7 +13,7 @@ import {outreachScore} from "@/domain/commercial";
 import {roleCapabilities,roleAccessScope} from "@/domain/access";
 import {authorizeCRMActor,type CRMActor} from "@/services/crm-service";
 import {commercialActorId} from "@/services/commercial-service";
-import {aiConfiguration,configuredAIModel} from "@/integrations/ai-gateway";
+import {configuredAIModel} from "@/integrations/ai-gateway";
 import {rankDispatchCandidates} from "@/integrations/dispatch-planner";
 import {recordEvent} from "@/services/events";
 import {assertTestHooksAllowed} from "@/services/test-hooks";
@@ -40,7 +42,7 @@ export async function prepareDispatchRoute(actor:CRMActor,campaignId:string){
       candidates.push({id:c.id,operationalScore:score.score,facts:c.facts.map(f=>({id:f.id,key:f.key,value:f.value.slice(0,300).replace(/\b\d{11,}\b/g,"[dado omitido]")}))});
     }
     if(!candidates.length)throw new ConflictError("Nenhum contato com telefone válido disponível nesta lista. Confira os contatos e pedidos de não contato.");
-    const data={status:aiConfiguration().configured?"QUEUED":"WAITING_CONFIGURATION",requestedById:commercialActorId(actor),membershipId:"context" in actor?actor.context.membershipId:null,candidates,ranked:[],cursor:0,total:members.length,excluded:members.length-candidates.length,errorCode:null,lockToken:null,startedAt:null,completedAt:null};
+    const data={status:(await runtimeAIConfiguration()).configured?"QUEUED":"WAITING_CONFIGURATION",requestedById:commercialActorId(actor),membershipId:"context" in actor?actor.context.membershipId:null,candidates,ranked:[],cursor:0,total:members.length,excluded:members.length-candidates.length,errorCode:null,lockToken:null,startedAt:null,completedAt:null};
     const route=await tx.dispatchRoute.upsert({where:{campaignId},create:{...data,tenantId:actor.tenantId,campaignId},update:{...data,version:{increment:1}}});
     await recordEvent(tx,{tenantId:actor.tenantId,actorUserId:commercialActorId(actor),action:"DISPATCH_ROUTE_REQUESTED",entityType:"DispatchRoute",entityId:route.id,metadata:{candidates:candidates.length,excluded:data.excluded}});
     return {id:route.id,status:route.status};
@@ -48,11 +50,11 @@ export async function prepareDispatchRoute(actor:CRMActor,campaignId:string){
 }
 
 export async function processDispatchPlanningBatch(generator?:typeof rankDispatchCandidates){
-  assertTestHooksAllowed(!!generator);if(!aiConfiguration().configured)return 0;
-  await db.dispatchRoute.updateMany({where:{status:"RUNNING",startedAt:{lt:new Date(Date.now()-180000)}},data:{status:"FAILED",lockToken:null,errorCode:"WORKER_INTERRUPTED"}});
-  const jobs=await db.dispatchRoute.findMany({where:{status:"QUEUED",campaign:{status:"DRAFT"}},take:2,orderBy:{updatedAt:"asc"}});let processed=0;
+  assertTestHooksAllowed(!!generator);if(!(await runtimeAIConfiguration()).configured)return 0;
+  await db.dispatchRoute.updateMany({where:{...(await operationalTenantScope()),status:"RUNNING",startedAt:{lt:new Date(Date.now()-180000)}},data:{status:"FAILED",lockToken:null,errorCode:"WORKER_INTERRUPTED"}});
+  const jobs=await db.dispatchRoute.findMany({where:{...(await operationalTenantScope()),status:"QUEUED",campaign:{status:"DRAFT"}},take:2,orderBy:{updatedAt:"asc"}});let processed=0;
   for(const job of jobs){const token=randomUUID();
-    if(!(await db.dispatchRoute.updateMany({where:{id:job.id,status:"QUEUED",version:job.version,cursor:job.cursor},data:{status:"RUNNING",lockToken:token,startedAt:new Date(),model:configuredAIModel()}})).count)continue;
+    if(!(await db.dispatchRoute.updateMany({where:{...(await operationalTenantScope()),id:job.id,status:"QUEUED",version:job.version,cursor:job.cursor},data:{status:"RUNNING",lockToken:token,startedAt:new Date(),model:configuredAIModel()}})).count)continue;
     try{
       const member=job.membershipId?await db.membership.findUniqueOrThrow({where:{id:job.membershipId}}):null;
       const actor:CRMActor=member?{tenantId:job.tenantId,context:{tenantId:job.tenantId,userId:job.requestedById,membershipId:member.id,role:member.role,accessScope:roleAccessScope[member.role],capabilities:roleCapabilities[member.role]}}:{tenantId:job.tenantId,platformUserId:job.requestedById};
@@ -66,7 +68,7 @@ export async function processDispatchPlanningBatch(generator?:typeof rankDispatc
         if(!await tx.outreachCampaign.findFirst({where:{id:campaign.id,tenantId:job.tenantId,status:"DRAFT",version:campaign.version}}))throw new ConflictError("CAMPAIGN_CHANGED");
         await tx.dispatchRoute.updateMany({where:{id:job.id,status:"RUNNING",lockToken:token,version:job.version,cursor:job.cursor},data:{ranked:ranked as Prisma.InputJsonValue,cursor,status:cursor===all.length?"READY":"QUEUED",lockToken:null,completedAt:cursor===all.length?new Date():null}});
       });processed++;
-    }catch(e){await db.dispatchRoute.updateMany({where:{id:job.id,lockToken:token},data:{status:"FAILED",lockToken:null,errorCode:e instanceof AIUnavailable?e.code:"ACCESS_OR_CONTEXT_CHANGED"}});}
+    }catch(e){await db.dispatchRoute.updateMany({where:{...(await operationalTenantScope()),id:job.id,lockToken:token},data:{status:"FAILED",lockToken:null,errorCode:e instanceof AIUnavailable?e.code:"ACCESS_OR_CONTEXT_CHANGED"}});}
   }return processed;
 }
 

@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { configuredEvolutionProvider } from "@/integrations/evolution-provider";
 import { recordEvent } from "@/services/events";
 import { resolveMessagingConnection } from "@/services/messaging-connection-resolver";
+import {configureMessagingWebhook} from "@/services/messaging-webhook-configuration";
 
 export const connectionSchema = z.object({ tenantId: z.string().min(1), instanceName: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/) }).strict();
 export async function registerEvolutionConnection(platformUserId: string, value: z.infer<typeof connectionSchema>) {
@@ -40,9 +41,11 @@ export async function checkMessagingConnection(context: AuthorizationContext, pr
     try { state = await (provider ?? configuredEvolutionProvider()).getConnectionState(connection.instanceName); }
     catch (error) { if (!(error instanceof MessagingProviderUnavailable)) throw error; state = "ERROR"; errorCode = error.code; }
   }
+  let observedPhone:string|null=null;
+  if(state==="OPEN"&&!connection.displayPhone){try{observedPhone=await (provider??configuredEvolutionProvider()).getPhoneNumber?.(connection.instanceName)??null;}catch{/* A profile failure never invalidates a confirmed connection. */}}
   return db.$transaction(async (transaction) => {
     if (!await transaction.membership.findFirst({ where: { id: context.membershipId, tenantId: context.tenantId, userId: context.userId, role: "TENANT_MASTER", status: "ACTIVE", user: { status: "ACTIVE" }, tenant: { status: "ACTIVE" } } })) throw new AuthorizationError();
-    const updated = await transaction.messagingConnection.update({ where: { id: connection.id }, data: { lastState: state, lastErrorCode: errorCode, lastCheckedAt: new Date() } });
+    const updated = await transaction.messagingConnection.update({ where: { id: connection.id }, data: { ...(observedPhone?{displayPhone:observedPhone}:{}), lastState: state, ...(state==="OPEN"?{lastConnectedAt:new Date()}:{}), lastErrorCode: errorCode, lastCheckedAt: new Date() } });
     await recordEvent(transaction, { tenantId: context.tenantId, actorUserId: context.userId, action: "MESSAGING_CONNECTION_CHECKED", entityType: "MessagingConnection", entityId: connection.id, metadata: { state, errorCode } });
     return updated;
   });
@@ -83,7 +86,7 @@ async function operateConnection(actor: ConnectionActor, action: "prepare" | "pa
       if (!(error instanceof MessagingProviderUnavailable)) throw error;
       errorCode = error.code;
     }
-    const updated = await transaction.messagingConnection.update({ where: { id: connection.id }, data: { lastState: state, lastErrorCode: errorCode, lastCheckedAt: new Date(), ...(action==="pair"&&actor.phoneNumber&&pairingCode?{displayPhone:actor.phoneNumber}:{}) } });
+    const updated = await transaction.messagingConnection.update({ where: { id: connection.id }, data: { lastState: state, ...(state==="OPEN"?{lastConnectedAt:new Date()}:{}), lastErrorCode: errorCode, lastCheckedAt: new Date(), ...(action==="pair"&&actor.phoneNumber&&pairingCode?{displayPhone:actor.phoneNumber}:{}) } });
     await recordEvent(transaction, {
       tenantId: actor.tenantId, actorUserId: actor.userId,
       action: action === "prepare" ? (errorCode ? "MESSAGING_INSTANCE_PREPARATION_FAILED" : "MESSAGING_INSTANCE_PREPARED") : action === "pair" ? "MESSAGING_PAIRING_REQUESTED" : "MESSAGING_CONNECTION_CHECKED",
@@ -111,6 +114,9 @@ export async function checkPlatformMessagingConnection(platformUserId: string, t
 export function pairPlatformMessagingConnection(platformUserId: string, tenantId: string, provider?: PairingMessagingProvider, connectionId?: string, phoneNumber?: string) {
   return operateConnection({ userId: platformUserId, tenantId, connectionId, phoneNumber }, "pair", provider);
 }
-export function pairMessagingConnection(context: AuthorizationContext, provider?: PairingMessagingProvider, connectionId?: string, phoneNumber?: string) {
+export async function pairMessagingConnection(context: AuthorizationContext, provider?: PairingMessagingProvider, connectionId?: string, phoneNumber?: string) {
+  const connection=await getMessagingConnection(context,connectionId);if(!connection)throw new NotFoundError();
+  await (provider??configuredEvolutionProvider()).ensureInstance(connection.instanceName);
+  if(!provider)await configureMessagingWebhook(context.tenantId,{context},connection.id);
   return operateConnection({ userId: context.userId, tenantId: context.tenantId, context, connectionId, phoneNumber }, "pair", provider);
 }

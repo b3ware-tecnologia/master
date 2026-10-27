@@ -14,7 +14,7 @@ export async function observeOutreachInbound(transaction: Prisma.TransactionClie
   const text = (message.text ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").trim().toLowerCase();
   const optOut = classifyExplicitContactRequest(message.text ?? "") === "OPT_OUT";
   const human = message.kind !== "TEXT" || /\b(atendente|consultor|pessoa|humano|gerente)\b/.test(text);
-  await transaction.outreachSession.update({ where: { id: session.id }, data: { conversationId: message.conversationId, ...(optOut || human ? { control: optOut ? "STOPPED" : "HUMAN", version: { increment: 1 }, handoffReason: optOut ? "CUSTOMER_OPTED_OUT" : "HUMAN_REQUEST" } : {}) } });
+  await transaction.outreachSession.update({ where: { id: session.id }, data: { conversationId: message.conversationId, ...(optOut || human ? { control: optOut ? "STOPPED" : "HUMAN", ...(!optOut?{handedOffAt:new Date()}:{}), version: { increment: 1 }, handoffReason: optOut ? "CUSTOMER_OPTED_OUT" : "HUMAN_REQUEST" } : {}) } });
   await transaction.outreachTurn.updateMany({ where: { sessionId: session.id, status: { in: ["QUEUED", "RUNNING", "READY"] } }, data: { status: "CANCELLED", lockToken: null, errorCode: "NEW_INBOUND_MESSAGE" } });
   if (human) await transaction.opportunity.updateMany({ where: { sessionId: session.id, tenantId: message.tenantId, stage: { notIn: ["WON", "LOST", "DO_NOT_CONTACT"] } }, data: { stage: "HUMAN_HANDOFF", handoffAt: new Date(), version: { increment: 1 } } });
   if (optOut && session.campaign.authorizedById) {

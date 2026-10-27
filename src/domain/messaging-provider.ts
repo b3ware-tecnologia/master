@@ -2,6 +2,7 @@ export type ConnectionState = "OPEN" | "CONNECTING" | "CLOSED";
 export interface MessagingProvider {
   readonly name: string;
   getConnectionState(instanceName: string): Promise<ConnectionState>;
+  getPhoneNumber?(instanceName:string):Promise<string|null>;
 }
 export type PairingResult = { state: ConnectionState; qrCode: string | null; pairingCode?: string | null };
 export interface PairingMessagingProvider extends MessagingProvider {

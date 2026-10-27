@@ -252,3 +252,5 @@ tbody tr:hover { background: var(--surface-alt); }
 @keyframes bm-skeleton { to { opacity:.45; } }
 @media (max-width:1000px) { .overview-grid { grid-template-columns:1fr; } }
 @media (max-width:760px) { .metric-top { align-items:flex-start; flex-direction:column; gap:6px; } .section-heading { align-items:flex-start; } }
+
+.operation-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px}.operation-links>a{display:grid;gap:8px;padding:20px 0;border-bottom:1px solid var(--line)}.operation-links span{color:var(--muted);font-size:12px}@media(max-width:600px){.operation-links{grid-template-columns:minmax(0,1fr)}}

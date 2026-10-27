@@ -1,3 +1,4 @@
+import {openAICredential} from "@/integrations/openai-credential";
 import { createHash } from "node:crypto";
 import { AIUnavailable } from "@/domain/conversation-ai";
 import { outreachResultSchema, type OutreachInput } from "@/domain/outreach";
@@ -25,13 +26,13 @@ export function validateOutreachResult(value: unknown, input: OutreachInput) {
 }
 export async function generateOutreach(input: OutreachInput, fetcher?: typeof fetch) {
   assertTestHooksAllowed(!!fetcher);
-  if (!process.env.OPENAI_API_KEY?.trim()) throw new AIUnavailable("NOT_CONFIGURED");
+  const apiKey=await openAICredential(); if (!apiKey) throw new AIUnavailable("NOT_CONFIGURED");
   if (input.playbook) {
     const output = await structuredCommercialResponse("CONCIERGE", input, fetcher); const decision = validateConciergeDecision(output.result, input);
     return { result: outreachResultSchema.parse({ ...mapCommercialDecision(decision), commercialDecision: decision, toolTrace: output.trace, ...(output.jev ? { jev: output.jev } : {}) }), inputTokens: output.inputTokens, outputTokens: output.outputTokens };
   }
   let response: Response;
-  try { response = await (fetcher ?? fetch)("https://api.openai.com/v1/responses", { method: "POST", signal: AbortSignal.timeout(45_000), headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: configuredAIModel(), store: false, instructions:instructions+relationshipIdentityInstructions(input), reasoning: { effort: "low" }, input: JSON.stringify(input), max_output_tokens: 2200, text: { format: { type: "json_schema", name: "relationship_outreach", strict: true, schema } } }) }); }
+  try { response = await (fetcher ?? fetch)("https://api.openai.com/v1/responses", { method: "POST", signal: AbortSignal.timeout(45_000), headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: configuredAIModel(), store: false, instructions:instructions+relationshipIdentityInstructions(input), reasoning: { effort: "low" }, input: JSON.stringify(input), max_output_tokens: 2200, text: { format: { type: "json_schema", name: "relationship_outreach", strict: true, schema } } }) }); }
   catch { throw new AIUnavailable("TRANSPORT_ERROR"); }
   if (!response.ok) throw new AIUnavailable(response.status === 429 ? "RATE_LIMITED" : "PROVIDER_ERROR");
   try {

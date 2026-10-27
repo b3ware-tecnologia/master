@@ -1,3 +1,4 @@
+import {openAICredential} from "@/integrations/openai-credential";
 import { createHash } from "node:crypto";
 import { AIUnavailable, analysisSchema, type AIInput } from "@/domain/conversation-ai";
 import { assertTestHooksAllowed } from "@/services/test-hooks";
@@ -28,12 +29,12 @@ const outputSchema = { type: "object", additionalProperties: false, required: ["
 } };
 export async function analyzeWithGateway(input: AIInput, model: string, fetcher?: typeof fetch) {
   assertTestHooksAllowed(!!fetcher);
-  if (!process.env.OPENAI_API_KEY?.trim()) throw new AIUnavailable("NOT_CONFIGURED");
+  const apiKey=await openAICredential(); if (!apiKey) throw new AIUnavailable("NOT_CONFIGURED");
   if (!(model in ModelRegistry)) throw new AIUnavailable("MODEL_NOT_ALLOWED");
   let response: Response;
   try {
     response = await (fetcher ?? fetch)("https://api.openai.com/v1/responses", {
-      method: "POST", headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(45_000),
+      method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(45_000),
       body: JSON.stringify({ model, store: false, instructions, input: JSON.stringify(input), reasoning: { effort: "low" }, max_output_tokens: 2200, text: { format: { type: "json_schema", name: "conversation_analysis", strict: true, schema: outputSchema } } }),
     });
   } catch { throw new AIUnavailable("TRANSPORT_ERROR"); }

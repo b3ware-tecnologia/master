@@ -1,3 +1,5 @@
+import {operationalTenantScope} from "@/lib/company-mode";
+import {runtimeAIConfiguration} from "@/integrations/openai-credential";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -5,7 +7,7 @@ import { campaignSchema, campaignActionSchema, sessionControlSchema } from "@/do
 import { ConflictError, NotFoundError } from "@/domain/errors";
 import { AIUnavailable } from "@/domain/conversation-ai";
 import { db } from "@/lib/db";
-import { aiConfiguration, configuredAIModel } from "@/integrations/ai-gateway";
+import { configuredAIModel } from "@/integrations/ai-gateway";
 import { generateOutreach, OutreachPrompt, validateOutreachResult } from "@/integrations/outreach-gateway";
 import { authorizeCRMActor, createCRMCase, type CRMActor } from "@/services/crm-service";
 import { customerScope } from "@/services/customer-scope";
@@ -36,7 +38,7 @@ export async function listOutreach(actor: CRMActor) {
       transaction.outreachSession.findMany({ where: { tenantId: actor.tenantId }, orderBy: { updatedAt: "desc" }, take: 50, include: { customer: { select: { fullName: true } }, campaign: { select: { name: true } }, turns: { take: 12, orderBy: { createdAt: "desc" }, select: { id: true, kind: true, status: true, message: true, errorCode: true, createdAt: true, inputTokens: true, outputTokens: true } } } }),
     ]);
     const playbooks = await transaction.campaignPlaybook.findMany({ where: { tenantId: actor.tenantId, status: "APPROVED" }, select: { id: true, name: true }, take: 100 });
-    return { playbooks, configuration: { ...aiConfiguration(), enabled: outreachEnabled(), outboundEnabled: process.env.WHATSAPP_OUTBOUND_ENABLED === "true" }, campaigns, lists, connections, sessions };
+    return { playbooks, configuration: { ...(await runtimeAIConfiguration()), enabled: outreachEnabled(), outboundEnabled: process.env.WHATSAPP_OUTBOUND_ENABLED === "true" }, campaigns, lists, connections, sessions };
   });
 }
 export async function createOutreachCampaign(actor: CRMActor, input: z.infer<typeof campaignSchema>) {
@@ -97,7 +99,7 @@ export async function controlOutreachSession(actor: CRMActor, id: string, input:
     await lockMessagingTarget(transaction, actor.tenantId, session.customerId); await lockCampaign(transaction, session.campaignId);
     if (!await transaction.customer.findFirst({ where: { ...scoped, id: session.customerId } })) throw new NotFoundError();
     if (session.control === "STOPPED") throw new ConflictError("O cliente encerrou o contato. Registre um novo consentimento antes de criar outro relacionamento.");
-    if (!(await transaction.outreachSession.updateMany({ where: { id, version: data.expectedVersion }, data: { control: data.control, version: { increment: 1 }, handoffReason: data.control === "HUMAN" ? "ASSUMED_BY_TEAM" : null } })).count) throw new ConflictError("O atendimento mudou.");
+    if (!(await transaction.outreachSession.updateMany({ where: { id, version: data.expectedVersion }, data: { control: data.control, ...(data.control==="HUMAN"?{handedOffAt:new Date()}:{}), version: { increment: 1 }, handoffReason: data.control === "HUMAN" ? "ASSUMED_BY_TEAM" : null } })).count) throw new ConflictError("O atendimento mudou.");
     await transaction.outreachTurn.updateMany({ where: { sessionId: id, status: { in: ["QUEUED", "RUNNING", "READY"] } }, data: { status: "CANCELLED", lockToken: null, errorCode: "CONTROL_CHANGED" } });
     await transaction.opportunity.updateMany({ where: { sessionId: id, tenantId: actor.tenantId, stage: { notIn: ["WON", "LOST", "DO_NOT_CONTACT"] } }, data: { stage: data.control === "HUMAN" ? "HUMAN_HANDOFF" : "AI_CONVERSATION", ...(data.control === "HUMAN" ? { humanAssignedAt: new Date() } : {}), version: { increment: 1 } } });
     if (data.control === "AI" && session.conversationId) {
@@ -116,7 +118,7 @@ async function eligibleCustomer(transaction: Prisma.TransactionClient, tenantId:
   return !pending && evaluateEligibility({ now: new Date(), status: "APPROVED", approvedAt: new Date(), scheduledAt: new Date(), channel: "WHATSAPP", customerActive: customer.status === "ACTIVE", recipientAvailable: phones.length === 1, consent: preference?.consent, lastOutboundAt: reply ? null : customer.lastOutboundAt, policy }).eligible;
 }
 async function scheduleInitialContacts() {
-  const campaigns = await db.outreachCampaign.findMany({ where: { status: "ACTIVE", startsAt: { lte: new Date() }, endsAt: { gt: new Date() }, connection: { tenant: {status:"ACTIVE"} } }, take: 20, orderBy: { createdAt: "asc" } });
+  const campaigns = await db.outreachCampaign.findMany({ where: {...(await operationalTenantScope()), status: "ACTIVE", startsAt: { lte: new Date() }, endsAt: { gt: new Date() }, connection: { tenant: {status:"ACTIVE"} } }, take: 20, orderBy: { createdAt: "asc" } });
   for (const candidate of campaigns) await db.$transaction(async (transaction) => {
     await lockMessagingTarget(transaction, candidate.tenantId); await lockCampaign(transaction, candidate.id);
     const campaign = await transaction.outreachCampaign.findUniqueOrThrow({ where: { id: candidate.id } });
@@ -146,7 +148,7 @@ async function scheduleInitialContacts() {
   }).catch(() => { /* A revoked campaign is ineligible, and cannot stop processing other companies. */ });
 }
 async function scheduleFollowUps() {
-  const sessions = await db.outreachSession.findMany({ where: { control: "AI", followUpQueued: false, lastSentAt: { not: null }, campaign: { status: "ACTIVE", followUpHours: { not: null }, endsAt: { gt: new Date() } } }, take: 50, orderBy: { lastSentAt: "asc" }, include: { campaign: true } });
+  const sessions = await db.outreachSession.findMany({ where: {...(await operationalTenantScope()), control: "AI", followUpQueued: false, lastSentAt: { not: null }, campaign: { status: "ACTIVE", followUpHours: { not: null }, endsAt: { gt: new Date() } } }, take: 50, orderBy: { lastSentAt: "asc" }, include: { campaign: true } });
   for (const session of sessions) {
     if (Date.now() - session.lastSentAt!.valueOf() < session.campaign.followUpHours! * 3600_000) continue;
     await db.$transaction(async (transaction) => {
@@ -160,13 +162,13 @@ async function scheduleFollowUps() {
 export async function processOutreachBatch(generator?: typeof generateOutreach) {
   assertTestHooksAllowed(!!generator);
   await processOutreachHandoffs();
-  if (!outreachEnabled() || !aiConfiguration().configured || process.env.WHATSAPP_OUTBOUND_ENABLED !== "true") return 0;
-  await db.outreachTurn.updateMany({ where: { status: "RUNNING", startedAt: { lt: new Date(Date.now() - 120_000) } }, data: { status: "FAILED", errorCode: "WORKER_INTERRUPTED", lockToken: null } });
+  if (!outreachEnabled() || !(await runtimeAIConfiguration()).configured || process.env.WHATSAPP_OUTBOUND_ENABLED !== "true") return 0;
+  await db.outreachTurn.updateMany({ where: {...(await operationalTenantScope()), status: "RUNNING", startedAt: { lt: new Date(Date.now() - 120_000) } }, data: { status: "FAILED", errorCode: "WORKER_INTERRUPTED", lockToken: null } });
   await scheduleInitialContacts(); await scheduleFollowUps(); await processCommercialFollowUps();
   // A READY turn committed before a worker crash is queued idempotently without another model call.
-  const ready = await db.outreachTurn.findMany({ where: { status: "READY", planId: { not: null }, plan: { outboundDispatch: null } }, take: 5 });
+  const ready = await db.outreachTurn.findMany({ where: {...(await operationalTenantScope()), status: "READY", planId: { not: null }, plan: { outboundDispatch: null } }, take: 5 });
   for (const item of ready) await queueReadyTurn(item.id).catch(() => {});
-  const jobs = await db.outreachTurn.findMany({ where: { status: "QUEUED" }, orderBy: { createdAt: "asc" }, take: 5 }); let processed = 0;
+  const jobs = await db.outreachTurn.findMany({ where: {...(await operationalTenantScope()), status: "QUEUED" }, orderBy: { createdAt: "asc" }, take: 5 }); let processed = 0;
   for (const job of jobs) {
     const token = randomUUID();
     try {
@@ -194,7 +196,7 @@ export async function processOutreachBatch(generator?: typeof generateOutreach) 
         const stop = result.nextStep === "STOP" || result.intent === "OPT_OUT";
         handoff = result.nextStep === "HANDOFF" || result.intent === "HUMAN_REQUEST";
         if (stop || handoff) {
-          await transaction.outreachSession.update({ where: { id: job.sessionId }, data: { control: stop ? "STOPPED" : "HUMAN", version: { increment: 1 }, handoffReason: stop ? result.intent === "OPT_OUT" ? "CUSTOMER_OPTED_OUT" : "NOT_INTERESTED" : "AI_HANDOFF" } });
+          await transaction.outreachSession.update({ where: { id: job.sessionId }, data: { control: stop ? "STOPPED" : "HUMAN", ...(!stop?{handedOffAt:new Date()}:{}), version: { increment: 1 }, handoffReason: stop ? result.intent === "OPT_OUT" ? "CUSTOMER_OPTED_OUT" : "NOT_INTERESTED" : "AI_HANDOFF" } });
           if (stop && result.intent === "OPT_OUT") { const phones = await transaction.customerIdentifier.findMany({ where: { tenantId: job.tenantId, customerId: source.session.customerId, type: "PHONE" } }); for (const phone of phones) await registerDoNotContact(transaction, job.tenantId, phone.normalizedValue, "Pedido de exclusão identificado na conversa.", "AI_DECISION", job.id); }
           await transaction.outreachTurn.update({ where: { id: job.id }, data: { status: stop ? "STOPPED" : "HANDOFF", result: result, inputTokens: output.inputTokens, outputTokens: output.outputTokens, completedAt: new Date(), lockToken: null } });
         } else {
@@ -210,19 +212,19 @@ export async function processOutreachBatch(generator?: typeof generateOutreach) 
       else await queueReadyTurn(job.id);
       processed++;
     } catch (error) {
-      await db.outreachTurn.updateMany({ where: { id: job.id, OR: [{ status: "QUEUED" }, { status: "RUNNING", lockToken: token }] }, data: { status: "FAILED", errorCode: error instanceof AIUnavailable ? error.code : "ACCESS_OR_CONTEXT_CHANGED", lockToken: null, completedAt: new Date() } });
+      await db.outreachTurn.updateMany({ where: {...(await operationalTenantScope()), id: job.id, OR: [{ status: "QUEUED" }, { status: "RUNNING", lockToken: token }] }, data: { status: "FAILED", errorCode: error instanceof AIUnavailable ? error.code : "ACCESS_OR_CONTEXT_CHANGED", lockToken: null, completedAt: new Date() } });
     }
   }
   return processed;
 }
 export async function processOutreachHandoffs() {
-  const sessions = await db.outreachSession.findMany({ where: { control: "HUMAN", handoffReason: { in: ["HUMAN_REQUEST", "AI_HANDOFF"] }, customer: { OR: [{ crmCases: { none: { status: { in: ["NEW", "IN_PROGRESS", "WAITING_CUSTOMER"] } } } }, { assignment: null }] } }, include: { campaign: true }, take: 20 });
+  const sessions = await db.outreachSession.findMany({ where: {...(await operationalTenantScope()), control: "HUMAN", handoffReason: { in: ["HUMAN_REQUEST", "AI_HANDOFF"] }, customer: { OR: [{ crmCases: { none: { status: { in: ["NEW", "IN_PROGRESS", "WAITING_CUSTOMER"] } } } }, { assignment: null }] } }, include: { campaign: true }, take: 20 });
   for (const session of sessions) {
     const key = hash(`handoff:${session.id}:${session.version}`);
     const requestKey = `${key.slice(0, 8)}-${key.slice(8, 12)}-4${key.slice(13, 16)}-a${key.slice(17, 20)}-${key.slice(20, 32)}`;
     try {
       const actor = await db.$transaction((transaction) => campaignActor(transaction, session.campaign));
-      if (!await db.cRMCase.findFirst({where:{tenantId:session.tenantId,customerId:session.customerId,status:{in:["NEW","IN_PROGRESS","WAITING_CUSTOMER"]}}})) await createCRMCase(actor, { requestKey, customerId: session.customerId, conversationId: session.conversationId ?? undefined, title: "Cliente encaminhado pela Vanessa", description: "Confira as mensagens e continue o atendimento. A assistente está pausada para este cliente." });
+      if (!await db.cRMCase.findFirst({where:{tenantId:session.tenantId,customerId:session.customerId,status:{in:["NEW","IN_PROGRESS","WAITING_CUSTOMER"]}}})) await createCRMCase(actor, { requestKey, customerId: session.customerId, conversationId: session.conversationId ?? undefined, title: `Cliente encaminhado por ${session.personaName}`, description: "Confira as mensagens e continue o atendimento. A assistente está pausada para este cliente." });
       await assignRoutineHandoff(actor,session);
     } catch { /* A current authorized owner must exist before a CRM write. Retry uses the same persisted source key. */ }
   }

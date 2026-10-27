@@ -1,3 +1,4 @@
+import {runtimeAIConfiguration} from "@/integrations/openai-credential";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -9,7 +10,7 @@ import { customerScope } from "@/services/customer-scope";
 import { recordEvent } from "@/services/events";
 import { lockMessagingTarget, lockCRMCustomer } from "@/services/messaging-locks";
 import { jevConfiguration } from "@/integrations/jev";
-import { aiConfiguration } from "@/integrations/ai-gateway";
+
 import { commercialAIJobInputSchema } from "@/domain/agent-simulation";
 
 export const commercialActorId = (actor: CRMActor) => "context" in actor ? actor.context.userId : actor.platformUserId;
@@ -30,7 +31,7 @@ export async function listCommercial(actor: CRMActor) {
       canManage ? tx.messagingConnection.findMany({ where: { tenantId: actor.tenantId }, include: { cadence: true }, take: 100 }) : [],
       tx.customer.findMany({ where: customer, take: 100, orderBy: { createdAt: "desc" }, include: { identifiers: { where: { type: "PHONE" } }, sources: { take: 1 }, listMembers: { take: 1, include: { list: { select: { name: true } } } }, facts: { where: { key: { in: ["previousRelationship", "relacionamento_anterior"] }, verification: "CONFIRMED" }, take: 1 } } }),
     ]);
-    return { configuration: aiConfiguration(), jev: jevConfiguration(), canManage, canUpdate: !("context" in actor) || actor.context.capabilities.includes("crm.update"), opportunities, stageCounts, counts: { imported: counts[0], contacted: counts[1], responded: counts[2], opportunities: counts[3] }, playbooks, institutions, products, conditions, jobs, connections, contacts: contacts.map((item) => ({ id: item.id, name: item.fullName, status: item.status, relationshipState: item.relationshipState, phone: item.identifiers[0]?.normalizedValue ?? null, origin: item.listMembers[0]?.list.name ?? "Cadastro", lastAttempt: item.lastOutboundAt, score: outreachScore({ validPhone: item.identifiers.some((p) => /^[1-9]\d{9,14}$/.test(p.normalizedValue) && !["REJECTED", "EXPIRED"].includes(p.verification)), confirmedPhone: item.identifiers.some((p) => p.verification === "CONFIRMED"), hasName: !!item.fullName, previousRelationship: item.facts.some((f) => /^(true|sim|yes|1)$/i.test(f.value)), responded: !!item.lastInboundAt, lastContactAt: item.lastContactAt }) })), limits: { opportunityCards: 150, contacts: 100, conditions: 200 } };
+    return { configuration: (await runtimeAIConfiguration()), jev: jevConfiguration(), canManage, canUpdate: !("context" in actor) || actor.context.capabilities.includes("crm.update"), opportunities, stageCounts, counts: { imported: counts[0], contacted: counts[1], responded: counts[2], opportunities: counts[3] }, playbooks, institutions, products, conditions, jobs, connections, contacts: contacts.map((item) => ({ id: item.id, name: item.fullName, status: item.status, relationshipState: item.relationshipState, phone: item.identifiers[0]?.normalizedValue ?? null, origin: item.listMembers[0]?.list.name ?? "Cadastro", lastAttempt: item.lastOutboundAt, score: outreachScore({ validPhone: item.identifiers.some((p) => /^[1-9]\d{9,14}$/.test(p.normalizedValue) && !["REJECTED", "EXPIRED"].includes(p.verification)), confirmedPhone: item.identifiers.some((p) => p.verification === "CONFIRMED"), hasName: !!item.fullName, previousRelationship: item.facts.some((f) => /^(true|sim|yes|1)$/i.test(f.value)), responded: !!item.lastInboundAt, lastContactAt: item.lastContactAt }) })), limits: { opportunityCards: 150, contacts: 100, conditions: 200 } };
   });
 }
 export async function createPlaybook(actor: CRMActor, value: unknown) {
@@ -81,7 +82,7 @@ export async function moveOpportunity(actor: CRMActor, id: string, value: unknow
     await lockMessagingTarget(tx, actor.tenantId, before.customerId);
     const item = await tx.opportunity.findFirst({ where: { id, tenantId: actor.tenantId, customer: commercialCustomerScope(actor), version: input.expectedVersion } }); if (!item) throw new ConflictError("A oportunidade mudou ou foi redistribuída.");
     if (item.stage === "DO_NOT_CONTACT" || input.stage === "DO_NOT_CONTACT") throw new ConflictError("Use o bloqueio de contato para registrar consentimento; não altere este estado pelo Kanban.");
-    if (item.sessionId) { await tx.outreachSession.update({ where: { id: item.sessionId }, data: { control: "HUMAN", version: { increment: 1 }, handoffReason: "HUMAN_STAGE_CHANGE" } }); await tx.outreachTurn.updateMany({ where: { sessionId: item.sessionId, status: { in: ["QUEUED", "RUNNING", "READY"] } }, data: { status: "CANCELLED", lockToken: null } }); }
+    if (item.sessionId) { await tx.outreachSession.update({ where: { id: item.sessionId }, data: { control: "HUMAN", handedOffAt:new Date(), version: { increment: 1 }, handoffReason: "HUMAN_STAGE_CHANGE" } }); await tx.outreachTurn.updateMany({ where: { sessionId: item.sessionId, status: { in: ["QUEUED", "RUNNING", "READY"] } }, data: { status: "CANCELLED", lockToken: null } }); }
     await tx.outboundDispatch.updateMany({ where: { tenantId: actor.tenantId, customerId: item.customerId, status: "QUEUED", plan: { outreachTurn: { isNot: null } } }, data: { status: "CANCELLED", version: { increment: 1 } } });
     const result = await tx.opportunity.update({ where: { id }, data: { stage: input.stage, version: { increment: 1 }, closedAt: ["WON", "LOST", "NOT_INTERESTED"].includes(input.stage) ? new Date() : null } });
     await tx.customerTimeline.create({ data: { tenantId: actor.tenantId, customerId: item.customerId, actorId: commercialActorId(actor), eventType: "OPPORTUNITY_STAGE", summary: input.note, metadata: { opportunityId: id, from: item.stage, to: input.stage } } });
@@ -101,7 +102,7 @@ export async function enqueueCommercialJob(actor: CRMActor, value: unknown) {
     if (input.kind === "COPILOT") { if (!await tx.opportunity.findFirst({ where: { id: input.entityId, tenantId: actor.tenantId, customer: commercialCustomerScope(actor) } })) throw new NotFoundError(); }
     else if (!await tx.campaignPlaybook.findFirst({ where: { id: input.entityId, tenantId: actor.tenantId, ...(input.kind === "TEST_AGENT" ? { status: "APPROVED" } : { status: { not: "APPROVED" } }) } })) throw new NotFoundError();
     if (await tx.commercialAIJob.count({ where: { tenantId: actor.tenantId, createdAt: { gt: new Date(Date.now() - 3600_000) } } }) >= 20) throw new ConflictError("Limite de vinte testes/interpretações por hora atingido.");
-    const item = await tx.commercialAIJob.create({ data: { tenantId: actor.tenantId, requestedById: commercialActorId(actor), membershipId: "context" in actor ? actor.context.membershipId : null, kind: input.kind, entityId: input.entityId, requestKey: input.requestKey, inputHash, payload: { message: input.message, ...(input.kind === "TEST_AGENT" ? { simulationStage: input.simulationStage ?? "REPLY" } : {}) }, status: aiConfiguration().configured ? "QUEUED" : "WAITING_CONFIGURATION" } }); await recordEvent(tx, { tenantId: actor.tenantId, actorUserId: commercialActorId(actor), action: "COMMERCIAL_AI_JOB_REQUESTED", entityType: "CommercialAIJob", entityId: item.id }); return { id: item.id, status: item.status };
+    const item = await tx.commercialAIJob.create({ data: { tenantId: actor.tenantId, requestedById: commercialActorId(actor), membershipId: "context" in actor ? actor.context.membershipId : null, kind: input.kind, entityId: input.entityId, requestKey: input.requestKey, inputHash, payload: { message: input.message, ...(input.kind === "TEST_AGENT" ? { simulationStage: input.simulationStage ?? "REPLY" } : {}) }, status: (await runtimeAIConfiguration()).configured ? "QUEUED" : "WAITING_CONFIGURATION" } }); await recordEvent(tx, { tenantId: actor.tenantId, actorUserId: commercialActorId(actor), action: "COMMERCIAL_AI_JOB_REQUESTED", entityType: "CommercialAIJob", entityId: item.id }); return { id: item.id, status: item.status };
   });
 }
 export { randomUUID };

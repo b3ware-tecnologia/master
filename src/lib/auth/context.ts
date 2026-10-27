@@ -5,6 +5,8 @@ import { roleAccessScope, roleCapabilities, type AuthorizationContext, type Capa
 import { AuthenticationError, AuthorizationError } from "@/domain/errors";
 import { logger } from "@/lib/logger";
 
+import {singleCompanyMode,operationalCompanySlug} from "@/lib/company-mode";
+
 export const sessionCookieName = "bm_session";
 export const tenantCookieName = "bm_tenant";
 
@@ -18,14 +20,14 @@ export async function authenticatedSession() {
 
 export async function availableTenants() {
   const session = await authenticatedSession();
-  return session.user.memberships.filter((item) => item.status === "ACTIVE" && item.tenant.status === "ACTIVE" && item.role !== "PLATFORM_ADMIN").map((item) => ({ id: item.tenantId, name: item.tenant.name, role: item.role })).sort((a, b) => a.name.localeCompare(b.name));
+  return session.user.memberships.filter((item) => item.status === "ACTIVE" && item.tenant.status === "ACTIVE" && item.role !== "PLATFORM_ADMIN" && (!singleCompanyMode() || item.tenant.slug === operationalCompanySlug())).map((item) => ({ id: item.tenantId, name: item.tenant.name, role: item.role })).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function resolveAuthorizationContext(requestedTenantId?: string | null): Promise<AuthorizationContext> {
   const cookieStore = await cookies();
   const session = await authenticatedSession();
-  const memberships = session.user.memberships.filter((item) => item.status === "ACTIVE" && item.tenant.status === "ACTIVE" && item.role !== "PLATFORM_ADMIN");
-  const selectedTenantId = requestedTenantId ?? cookieStore.get(tenantCookieName)?.value;
+  const memberships = session.user.memberships.filter((item) => item.status === "ACTIVE" && item.tenant.status === "ACTIVE" && item.role !== "PLATFORM_ADMIN" && (!singleCompanyMode() || item.tenant.slug === operationalCompanySlug()));
+  const selectedTenantId = requestedTenantId ?? (singleCompanyMode() ? memberships[0]?.tenantId : cookieStore.get(tenantCookieName)?.value);
   const membership = selectedTenantId ? memberships.find((item) => item.tenantId === selectedTenantId) : memberships.length === 1 ? memberships[0] : undefined;
   if (!membership) throw new AuthorizationError("Active tenant membership required");
   logger.info({ event: "tenant_resolved", tenantId: membership.tenantId, userId: session.userId });
@@ -33,6 +35,7 @@ export async function resolveAuthorizationContext(requestedTenantId?: string | n
 }
 
 export async function requirePlatformAdmin() {
+  if(singleCompanyMode()) throw new AuthorizationError("Admin Center indisponível nesta operação.");
   const session = await authenticatedSession();
   if (!session.user.memberships.some((item) => item.role === "PLATFORM_ADMIN" && item.status === "ACTIVE" && item.tenant.status === "ACTIVE")) throw new AuthorizationError("Access denied");
   return session.userId;
