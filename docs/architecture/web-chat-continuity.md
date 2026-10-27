@@ -1,5 +1,7 @@
 # Continuidade do atendimento entre WhatsApp e web
 
+**Atualização de 27/10/2026:** a continuidade foi implementada e passou na aceitação isolada com transporte simulado. O chat usa convite individual emitido no servidor, chave no fragmento e hash persistido; não exige uma conta do cliente. A abordagem agora é única e novos atendimentos recebem um dos 20 nomes persistidos. Veja o [escopo operacional atual](../product/escopo-operacional-20261027.md) e a [homologação](../testing/versao-homologacao-20261027.md). As seções abaixo preservam a proposta original e não substituem a implementação e suas evidências atuais.
+
 Discussão de produto de 09/10/2026. O usuário aprovou a direção visual dos mockups e pediu uma experiência em que o cliente abra um link de atendimento já associado ao cadastro. Esta é a proposta técnica decorrente da conversa; não representa implementação, envio ou ativação de IA.
 
 ## Objetivo e limite
