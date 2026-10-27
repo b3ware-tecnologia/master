@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies,headers } from "next/headers";
 import { db } from "@/lib/db";
 import { hashToken } from "@/lib/auth/crypto";
 import { roleAccessScope, roleCapabilities, type AuthorizationContext, type Capability } from "@/domain/access";
@@ -6,16 +6,24 @@ import { AuthenticationError, AuthorizationError } from "@/domain/errors";
 import { logger } from "@/lib/logger";
 
 import {singleCompanyMode,operationalCompanySlug} from "@/lib/company-mode";
+import {localNoAuthEnabled} from "@/lib/local-runtime";
 
 export const sessionCookieName = "bm_session";
 export const tenantCookieName = "bm_tenant";
+export async function localAccessRequestAllowed(){
+  if(!localNoAuthEnabled())return false;const h=await headers();const loopbackHosts=["127.0.0.1:3020","localhost:3020","[::1]:3020"];
+  return loopbackHosts.includes(h.get("host")??"")&&!h.get("cf-ray")&&!h.get("cf-connecting-ip")&&(!h.get("x-forwarded-host")||loopbackHosts.includes(h.get("x-forwarded-host")!))&&(!h.get("x-forwarded-for")||h.get("x-forwarded-for")!.split(",").every(value=>["127.0.0.1","::1","::ffff:127.0.0.1"].includes(value.trim())));
+}
 
 export async function authenticatedSession() {
   const token = (await cookies()).get(sessionCookieName)?.value;
-  if (!token) throw new AuthenticationError("Authentication required");
-  const session = await db.session.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: { include: { memberships: { include: { tenant: true } } } } } });
-  if (!session || session.expiresAt <= new Date() || session.user.status !== "ACTIVE") throw new AuthenticationError("Authentication required");
-  return session;
+  const session = token?await db.session.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: { include: { memberships: { include: { tenant: true } } } } } }):null;
+  if(session&&session.expiresAt>new Date()&&session.user.status==="ACTIVE")return session;
+  if(await localAccessRequestAllowed()){
+    const user=await db.user.findUnique({where:{email:"erico.andrade@b3ware.com.br"},include:{memberships:{include:{tenant:true}}}});
+    if(user?.status==="ACTIVE"&&user.memberships.some(m=>m.role==="TENANT_MASTER"&&m.status==="ACTIVE"&&m.tenant.slug===operationalCompanySlug()&&m.tenant.status==="ACTIVE")){const now=new Date();return {id:"local-owner-access",userId:user.id,user,tokenHash:"",createdAt:now,lastSeenAt:now,expiresAt:new Date(now.valueOf()+3600000)};}
+  }
+  throw new AuthenticationError("Authentication required");
 }
 
 export async function availableTenants() {

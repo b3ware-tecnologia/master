@@ -2,6 +2,7 @@ import { z } from "zod";
 import { MessagingProviderUnavailable, type ConnectionState, type WebhookMessagingProvider, type SendingMessagingProvider, type PairingResult } from "@/domain/messaging-provider";
 import { mediaMaxBytes, MessageMediaUnavailable, validateMedia, type MessageMediaProvider } from "@/domain/message-media";
 import type { MessageKind } from "@prisma/client";
+import {localHTTPAllowed} from "@/lib/local-runtime";
 
 export const evolutionContractVersion = "2.3.7";
 const responseSchema = z.object({ instance: z.object({ instanceName: z.string(), state: z.enum(["open", "connecting", "close"]) }) });
@@ -13,7 +14,7 @@ export class EvolutionProvider implements WebhookMessagingProvider, SendingMessa
     let url: URL;
     try { url = new URL(baseUrl); } catch { throw new MessagingProviderUnavailable("NOT_CONFIGURED"); }
     if (!apiKey) throw new MessagingProviderUnavailable("NOT_CONFIGURED");
-    if (url.username || url.password || url.search || url.hash || !(url.protocol === "https:" || (url.protocol === "http:" && url.hostname.endsWith(".railway.internal")))) throw new MessagingProviderUnavailable("NOT_CONFIGURED");
+    if (url.username || url.password || url.search || url.hash || !(url.protocol === "https:" || (url.protocol === "http:" && url.hostname.endsWith(".railway.internal")) || localHTTPAllowed(url))) throw new MessagingProviderUnavailable("NOT_CONFIGURED");
   }
   private validateInstance(instanceName: string) {
     if (!/^[A-Za-z0-9_-]{1,80}$/.test(instanceName)) throw new MessagingProviderUnavailable("INVALID_RESPONSE");
@@ -84,7 +85,7 @@ export class EvolutionProvider implements WebhookMessagingProvider, SendingMessa
   async configureWebhook(instanceName: string, url: string, token: string): Promise<void> {
     this.validateInstance(instanceName);
     const destination = new URL(url);
-    if (destination.protocol !== "https:" || destination.username || destination.password || destination.search || destination.hash || !/^[a-f0-9]{64}$/.test(token)) throw new MessagingProviderUnavailable("NOT_CONFIGURED");
+    if ((!localHTTPAllowed(destination)&&destination.protocol !== "https:") || destination.username || destination.password || destination.search || destination.hash || !/^[a-f0-9]{64}$/.test(token)) throw new MessagingProviderUnavailable("NOT_CONFIGURED");
     const events = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "SEND_MESSAGE"];
     await this.request(`/webhook/set/${encodeURIComponent(instanceName)}`, "POST", { webhook: { enabled: true, url, headers: { "x-bm-webhook-token": token }, byEvents: false, base64: false, events } });
     const readback = await this.request(`/webhook/find/${encodeURIComponent(instanceName)}`);

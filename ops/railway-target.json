@@ -1,0 +1,13 @@
+{
+  "ownerEmail": "erico.andrade@b3ware.com.br",
+  "workspaceId": "973833cf-029d-4847-afc4-fdc1605ae434",
+  "workspaceName": "bmcredito's Projects",
+  "projectId": "aaead46d-3d45-4146-ae6d-ce6174222723",
+  "projectName": "diplomatic-flow",
+  "environmentId": "9db10446-a59f-4da2-b7ca-dbfd1fb72539",
+  "environmentName": "production",
+  "services": {
+    "web": "64239154-2706-43e1-b2f1-d9f0de8ceec9",
+    "worker": "057c42dd-b65b-479f-a340-b56c541f5352"
+  }
+}

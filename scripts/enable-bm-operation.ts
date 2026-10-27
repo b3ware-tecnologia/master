@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {db} from "@/lib/db";
 import {recordEvent} from "@/services/events";
 async function main(){
-  assert.equal(process.env.RAILWAY_PROJECT_ID,"ef26eb2e-9425-471c-a647-65d93c0b1b8a");assert.equal(process.env.RAILWAY_ENVIRONMENT_NAME,"production");assert.equal(process.env.ENABLE_BM_OPERATION,"true");
+  assert.equal(process.env.RAILWAY_PROJECT_ID,"aaead46d-3d45-4146-ae6d-ce6174222723");assert.equal(process.env.RAILWAY_ENVIRONMENT_NAME,"production");assert.equal(process.env.ENABLE_BM_OPERATION,"true");
   const email=process.env.BM_OWNER_EMAIL?.trim().toLowerCase();assert(email&&email==="erico.andrade@b3ware.com.br");
   const result=await db.$transaction(async tx=>{
     const tenant=await tx.tenant.findUniqueOrThrow({where:{slug:"bm-credito"}});assert.equal(tenant.status,"ACTIVE");
