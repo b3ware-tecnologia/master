@@ -42,7 +42,7 @@ export async function checkMessagingConnection(context: AuthorizationContext, pr
     catch (error) { if (!(error instanceof MessagingProviderUnavailable)) throw error; state = "ERROR"; errorCode = error.code; }
   }
   let observedPhone:string|null=null;
-  if(state==="OPEN"&&!connection.displayPhone){try{observedPhone=await (provider??configuredEvolutionProvider()).getPhoneNumber?.(connection.instanceName)??null;}catch{/* A profile failure never invalidates a confirmed connection. */}}
+  if(state==="OPEN"){try{observedPhone=await (provider??configuredEvolutionProvider()).getPhoneNumber?.(connection.instanceName)??null;}catch{/* A profile failure never invalidates a confirmed connection. */}}
   return db.$transaction(async (transaction) => {
     if (!await transaction.membership.findFirst({ where: { id: context.membershipId, tenantId: context.tenantId, userId: context.userId, role: "TENANT_MASTER", status: "ACTIVE", user: { status: "ACTIVE" }, tenant: { status: "ACTIVE" } } })) throw new AuthorizationError();
     const updated = await transaction.messagingConnection.update({ where: { id: connection.id }, data: { ...(observedPhone?{displayPhone:observedPhone}:{}), lastState: state, ...(state==="OPEN"?{lastConnectedAt:new Date()}:{}), lastErrorCode: errorCode, lastCheckedAt: new Date() } });

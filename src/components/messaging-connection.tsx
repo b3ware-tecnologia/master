@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
@@ -11,34 +11,35 @@ export function RegisterMessagingConnection({ tenants }: { tenants: { id: string
 type Connection = { id?: string; instanceName: string; enabled?: boolean; displayName?:string|null; displayPhone?:string|null; lastConnectedAt?:Date|string|null; lastState: string; lastErrorCode: string | null; lastCheckedAt: Date | string | null; isDefault?: boolean; healthStatus?: string; circuitState?: string };
 type Metrics = { receipts: Record<string, number>; deliveries: Record<string, number>; latencySamples: number; latencyP95Ms: number | null; deadLetters: { id: string; errorCode: string; attempts: number }[] };
 const states: Record<string, string> = { OPEN: "Conectada", CONNECTING: "Conectando", CLOSED: "Desconectada", UNCHECKED: "Ainda não verificada", DISABLED: "Desabilitada", ERROR: "Verificação indisponível" };
-export function MessagingConnectionStatus({ initial, endpoint = "/api/messaging-connection", canManage = false, canProvision = false, title = "Conexão WhatsApp" }: { initial: Connection | null; endpoint?: string; canManage?: boolean; canProvision?: boolean; title?: string }) {
+export function MessagingConnectionStatus({ initial, endpoint = "/api/messaging-connection", canManage = false, canProvision = false, title = "Conexão WhatsApp", autoPair=false }: { initial: Connection | null; endpoint?: string; canManage?: boolean; canProvision?: boolean; title?: string;autoPair?:boolean }) {
   const [connection, setConnection] = useState(initial); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const [qrCode, setQrCode] = useState<string | null>(null);
-  const [phoneNumber,setPhoneNumber]=useState(initial?.displayPhone??""); const [pairingCode,setPairingCode]=useState<string|null>(null);
+  const autoPairStarted=useRef(false);
+  useEffect(()=>{if(autoPair&&!autoPairStarted.current&&initial?.lastState!=="OPEN"){autoPairStarted.current=true;void operate("pair");}},[autoPair,initial?.lastState]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const target = `${endpoint}${initial?.id ? `?connectionId=${encodeURIComponent(initial.id)}` : ""}`;
   async function control(action: string, receiptId?: string) { setBusy(true); setError(""); try { const response = await fetch(target, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, receiptId }) }); const value = await response.json(); if (!response.ok) throw new Error(value.error); setConnection(value); setMetrics(null); } catch (error) { setError(error instanceof Error ? error.message : "Ação indisponível."); } finally { setBusy(false); } }
   async function loadMetrics() { setBusy(true); setError(""); try { const response = await fetch(target, { method: "PUT", cache: "no-store" }); const value = await response.json(); if (!response.ok) throw new Error(value.error); setMetrics(value); } catch (error) { setError(error instanceof Error ? error.message : "Consulta indisponível."); } finally { setBusy(false); } }
   useEffect(() => {
-    if (!qrCode && !pairingCode) return;
+    if (!qrCode) return;
     const controller = new AbortController();
     // This is the UI display window, not a claimed provider QR expiry time.
-    const timer = setTimeout(() => {setQrCode(null);setPairingCode(null);}, 60_000);
+    const timer = setTimeout(() => {setQrCode(null);}, 60_000);
     const poll = setInterval(async () => {
       try {
         const response = await fetch(target, { method: "POST", signal: controller.signal, cache: "no-store" });
-        if (response.ok) { const updated: Connection = await response.json(); setConnection(updated); if (updated.lastState === "OPEN") {setQrCode(null);setPairingCode(null);} }
+        if (response.ok) { const updated: Connection = await response.json(); setConnection(updated); if (updated.lastState === "OPEN") {setQrCode(null);} }
       } catch { /* The explicit check button reports network failures. */ }
     }, 5_000);
     return () => { clearTimeout(timer); clearInterval(poll); controller.abort(); };
-  }, [qrCode, pairingCode, target]);
+  }, [qrCode, target]);
   async function operate(action: "check" | "pair" | "provision" | "webhook") {
-    setBusy(true); setError(""); setQrCode(null); setPairingCode(null);
+    setBusy(true); setError(""); setQrCode(null);
     try {
-      const response = await fetch(`${action === "check" ? endpoint : `${endpoint}/${action}`}${initial?.id ? `?connectionId=${encodeURIComponent(initial.id)}` : ""}`, { method: "POST", cache: "no-store", ...(action === "pair" && phoneNumber ? {headers:{"Content-Type":"application/json"},body:JSON.stringify({phoneNumber})}: {}) });
+      const response = await fetch(`${action === "check" ? endpoint : `${endpoint}/${action}`}${initial?.id ? `?connectionId=${encodeURIComponent(initial.id)}` : ""}`, { method: "POST", cache: "no-store" });
       const result = await response.json();
       if (!response.ok) setError(result.error ?? "Não foi possível completar a operação.");
-      else if (action === "pair") { setConnection(result.connection); setQrCode(result.qrCode); setPairingCode(result.pairingCode ?? null); if (!result.qrCode && !result.pairingCode && result.connection.lastState !== "OPEN") setError("Código de conexão ainda não disponível. Aguarde alguns segundos e tente novamente."); }
+      else if (action === "pair") { setConnection(result.connection); setQrCode(result.qrCode); if (!result.qrCode && result.connection.lastState !== "OPEN") setError("O QR Code está sendo preparado. Aguarde alguns segundos e clique em Gerar QR Code novamente."); }
       else setConnection(result);
     } catch { setError("Falha de conexão. Tente novamente."); }
     finally { setBusy(false); }
@@ -51,9 +52,7 @@ export function MessagingConnectionStatus({ initial, endpoint = "/api/messaging-
     {initial?.id && <details><summary>Opções do número e entregas</summary><button className="secondary" disabled={busy} onClick={() => void loadMetrics()}>Consultar fila e entregas</button>{canManage && <div className="inbox-toolbar">{!connection.isDefault && <button className="secondary" disabled={busy} onClick={() => void control("default")}>Tornar principal</button>}<button className="secondary" disabled={busy} onClick={() => void control(connection.enabled === false ? "enable" : "disable")}>{connection.enabled === false ? "Habilitar conexão" : "Desabilitar conexão"}</button></div>}</details>}
     {metrics && <div><p>Na fila: {metrics.receipts.QUEUED ?? 0} · Processando: {metrics.receipts.PROCESSING ?? 0} · Processados: {metrics.receipts.PROCESSED ?? 0} · Falhas: {metrics.receipts.DEAD_LETTER ?? 0}</p><p>Entregues: {metrics.deliveries.DELIVERED ?? 0} · Lidas: {metrics.deliveries.READ ?? 0} · Falhas de entrega: {metrics.deliveries.FAILED ?? 0}</p><p>{metrics.latencyP95Ms === null ? "Sem amostra de latência." : `95% dos últimos ${metrics.latencySamples} recebimentos processados em até ${(metrics.latencyP95Ms / 1000).toFixed(1)} s.`}</p>{canManage && metrics.deadLetters.map((item) => <p key={item.id}>Recebimento com falha após {item.attempts} tentativas <button disabled={busy || connection.enabled === false} onClick={() => void control("retry-receipt", item.id)}>Reprocessar recebimento</button></p>)}</div>}
     {connection.lastErrorCode === "NOT_CONFIGURED" && <p>A configuração segura do provedor está pendente.</p>}
-    {canManage && connection.lastState !== "OPEN" && <label>Telefone para conexão por código<input value={phoneNumber} onChange={e=>setPhoneNumber(e.target.value.replace(/\D/g,""))} inputMode="tel" maxLength={15} placeholder="5511999999999"/><small>Com o número preenchido, gere um código e digite-o no WhatsApp em Aparelhos conectados → Conectar com número de telefone. O aplicativo desse número precisa estar disponível.</small></label>}
-    {pairingCode && <div className="notice" role="status"><h3>Código para conectar</h3><strong className="pairing-code">{pairingCode}</strong><p>Digite no WhatsApp do número informado. Se expirar, gere outro código.</p></div>}
-    {canManage && <div className="form"><button disabled={busy} onClick={() => operate("check")}>Verificar conexão</button>{connection.lastState !== "OPEN" && <button disabled={busy} onClick={() => operate("pair")}>{busy ? "Aguarde…" : phoneNumber ? "Conectar por código" : "Conectar por QR Code"}</button>}{canProvision && <><button disabled={busy} onClick={() => operate("provision")}>Reconectar número</button><button disabled={busy} onClick={() => operate("webhook")}>Ativar recebimento</button></>}</div>}
-    {qrCode && <div className="pairing-qr"><Image src={qrCode} alt="QR Code para conectar o WhatsApp desta empresa" width={256} height={256} unoptimized /><p>No WhatsApp do número da empresa, abra <strong>Aparelhos conectados → Conectar aparelho</strong> e escaneie este código.</p><p>O código é exibido por 60 segundos. Se expirar, clique em Gerar QR Code novamente.</p></div>}
+    {canManage && <div className="form"><button disabled={busy} onClick={() => operate("check")}>Verificar conexão</button>{connection.lastState !== "OPEN" && <button disabled={busy} onClick={() => operate("pair")}>{busy ? "Aguarde…" : qrCode?"Gerar novo QR Code":"Gerar QR Code"}</button>}{canProvision && <><button disabled={busy} onClick={() => operate("provision")}>Reconectar número</button><button disabled={busy} onClick={() => operate("webhook")}>Ativar recebimento</button></>}</div>}
+    {qrCode && <div className="pairing-qr"><Image src={qrCode} alt="QR Code para conectar o WhatsApp desta empresa" width={256} height={256} unoptimized /><p>No celular que usa este WhatsApp, abra <strong>Aparelhos conectados → Conectar aparelho</strong> e escaneie o QR Code acima. A conexão será confirmada automaticamente.</p><p>O código é exibido por 60 segundos. Se expirar, clique em Gerar QR Code novamente.</p></div>}
   </> : <p>Nenhum WhatsApp conectado. Use Conectar número para começar.</p>}{error && <p className="error" role="alert">{error}</p>}<p>O número conectado será usado somente nas rotinas que você autorizar.</p></section>;
 }

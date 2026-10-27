@@ -14,7 +14,7 @@ export async function processConnectionHealthBatch(provider?: MessagingProvider)
     if (!(await db.messagingConnection.updateMany({ where: { id: connection.id, nextHealthAt: connection.nextHealthAt }, data: { nextHealthAt: new Date(Date.now() + 120_000), healthLockToken: token } })).count) continue;
     let state = "ERROR";
     try { state = await (provider ?? configuredEvolutionProvider()).getConnectionState(connection.instanceName); } catch { /* Health records a technical failure, never credentials or provider payloads. */ }
-    let observedPhone:string|null=null;if(state==="OPEN"&&!connection.displayPhone){try{observedPhone=await (provider??configuredEvolutionProvider()).getPhoneNumber?.(connection.instanceName)??null;}catch{/* Retain connection state on profile lookup failure. */}}
+    let observedPhone:string|null=null;if(state==="OPEN"&&(!connection.displayPhone||connection.lastState!=="OPEN")){try{observedPhone=await (provider??configuredEvolutionProvider()).getPhoneNumber?.(connection.instanceName)??null;}catch{/* Retain connection state on profile lookup failure. */}}
     await db.$transaction(async (transaction) => {
       const current = await transaction.messagingConnection.findFirst({ where: { id: connection.id, enabled: true, healthLockToken: token, tenant: { status: "ACTIVE" } } });
       if (!current) return;

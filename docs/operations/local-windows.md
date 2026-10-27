@@ -6,7 +6,7 @@ O sistema está disponível em **http://127.0.0.1:3020/app**. Nesta execução l
 
 1. **Início:** enviados, contatos que responderam, encaminhados ao humano e contatos sem resposta. São pessoas únicas da empresa. Encaminhamentos anteriores continuam contados mesmo se a IA retomar depois.
 2. **Equipe:** criar equipes, convidar atendentes por nome/e-mail e vincular pessoas à equipe. Cada atendente define sua senha quando o acesso autenticado estiver sendo usado.
-3. **WhatsApp:** informar telefone e um nome opcional, conectar por código ou QR e autorizar no aplicativo do número. O sistema mostra o telefone, estado, última verificação e última conexão confirmada, quando houver.
+3. **WhatsApp:** informar um nome opcional e conectar por QR Code. Não é necessário digitar o telefone; ele é identificado após a conexão. No celular, abrir Aparelhos conectados → Conectar aparelho e escanear o QR. O sistema mostra o telefone, estado, última verificação e última conexão confirmada, quando houver.
 4. **Configurações:** salvar e validar a chave da OpenAI; ela fica criptografada no banco local. O botão de teste faz uma chamada real pequena ao GPT-6 Luna e usa o saldo dessa conta. Nenhuma chave foi copiada do PILOT ou do Railway.
 5. **Listas e contatos / Disparador:** importar contatos, revisar a autorização/dados, escolher lista/números/equipe, preparar a rota e iniciar explicitamente. Salvar a chave não inicia campanhas automaticamente.
 
